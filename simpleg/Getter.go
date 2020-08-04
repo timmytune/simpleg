@@ -3,6 +3,7 @@ package simpleg
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v2"
@@ -122,6 +123,16 @@ type GetterFactory struct {
 	Input                       chan Query
 	transactionValidityDuration uint64
 }
+type GetterFactory struct {
+	DB    *DB
+	Input chan Query
+	v     []bytes
+}
+
+func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[string][]byte, []error) {
+	pr := []byte(strings.Join(pre, g.DB.KV.D))
+	txn.NewIterator
+}
 
 func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool) (*ObjectList, []error) {
 	ret := ObjectList{}
@@ -130,6 +141,24 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 	if node.Direction == "" {
 		errs = append(errs, ErrLinkInObjectLoader)
 		return nil, errs
+	}
+	ins, ok := node.Instructions["ID"]
+	if ok {
+		for _, query := range ins {
+			ret.ObjectName = node.TypeName
+			if query.action == "==" {
+				if isIds {
+					// just return an object list with the id requested
+					ret.IDs = make([][]byte, 1)
+					g.DB.Lock.Lock()
+					ret.IDs = append(ret.IDs, g.DB.FT["ID"].Set(query.param))
+					g.DB.Lock.Unlock()
+					return &ret, errs
+				} else {
+
+				}
+			}
+		}
 	}
 
 	return &ret, errs

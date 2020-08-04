@@ -138,6 +138,7 @@ func (db *DB) Start() error {
 	bd.Truncate = db.Options.TruncateDB
 	db.KV, err = kv.Open(kd, bd)
 	db.Setter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
+	db.Getter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
 	return err
 }
 
