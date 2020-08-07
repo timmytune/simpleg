@@ -35,9 +35,9 @@ type FieldOptions struct {
 type ObjectTypeOptions struct {
 	Name     string
 	Fields   map[string]FieldOptions
-	Set      func(interface{}, *DB) (map[string][]byte, []error)
+	Set      func(interface{}, *DB) (map[KeyValueKey][]byte, []error)
 	Validate func(interface{}, *DB) (interface{}, []error)
-	Get      func(map[string][]byte, *DB) (interface{}, []error)
+	Get      func(map[KeyValueKey][]byte, *DB) (interface{}, []error)
 	New      func(*DB) interface{}
 }
 

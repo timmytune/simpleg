@@ -114,7 +114,7 @@ type GetterRet struct {
 type ObjectList struct {
 	ObjectName string
 	isIds      bool
-	Objects    []map[string][]byte
+	Objects    []map[KeyValueKey][]byte
 	IDs        [][]byte
 }
 
@@ -123,15 +123,51 @@ type GetterFactory struct {
 	Input                       chan Query
 	transactionValidityDuration uint64
 }
-type GetterFactory struct {
-	DB    *DB
-	Input chan Query
-	v     []bytes
+type KeyValueKey struct {
+	Main string
+	Subs string
 }
 
-func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[string][]byte, []error) {
+func (k *KeyValueKey) Set(b []byte, d string, index int) error {
+	st := string(b)
+	sts := strings.Split(st, d)
+	l := len(sts)
+	if l > index {
+		k.Main = sts[index]
+	} else {
+		return errors.New("Main index not available in key" + st)
+	}
+	if l > (index + 1) {
+		k.Subs = strings.Join(sts[index+1:], d)
+	}
+	return nil
+
+}
+
+func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[KeyValueKey][]byte, []error) {
+	ret := make(map[KeyValueKey][]byte)
+	errs := make([]error, 0)
+	it := txn.NewIterator(badger.DefaultIteratorOptions)
+	defer it.Close()
 	pr := []byte(strings.Join(pre, g.DB.KV.D))
-	txn.NewIterator
+	for it.Seek(pr); it.ValidForPrefix(pr); it.Next() {
+		item := it.Item()
+		k := item.Key()
+		v, err := item.ValueCopy(nil)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			key := KeyValueKey{}
+			err := key.Set(k, g.DB.KV.D, 3)
+			if err != nil {
+				errs = append(errs, err)
+			} else {
+				ret[key] = v
+			}
+
+		}
+	}
+	return ret, errs
 }
 
 func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool) (*ObjectList, []error) {
@@ -151,12 +187,23 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 					// just return an object list with the id requested
 					ret.IDs = make([][]byte, 1)
 					g.DB.Lock.Lock()
-					ret.IDs = append(ret.IDs, g.DB.FT["ID"].Set(query.param))
+					ret.IDs = append(ret.IDs, g.DB.FT["uint64"].Set(query.param))
 					g.DB.Lock.Unlock()
 					return &ret, errs
 				} else {
+					g.DB.Lock.Lock()
+					rawID := g.DB.FT["uint64"].Set(query.param)
+					g.DB.Lock.Unlock()
+					obj, err := g.getKeysWithValue(txn, g.DB.Options.DBName, node.TypeName, string(rawID))
+					if len(err) > 0 {
+						errs = append(errs, err...)
+					}
+					if obj != nil {
+						ret.Objects = append(ret.Objects, obj)
+					}
 
 				}
+				return &ret, errs
 			}
 		}
 	}
@@ -254,9 +301,11 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 	if q.ReturnType == 0 {
 
 	}
+	g.DB.Lock.Lock()
 	ot, ok := g.DB.OT[qData[0].(string)]
+	g.DB.Lock.Unlock()
 	if !ok {
-		ret.Errors = append(ret.Errors, errObjectTypeNotFound)
+		ret.Errors = append(ret.Errors, ErrObjectTypeNotFound)
 	}
 	newObject := g.DB.OT[qData[0].(string)].New(g.DB)
 	(*data)[qData[1].(string)] = newObject

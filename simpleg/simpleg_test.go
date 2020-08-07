@@ -32,7 +32,7 @@ func GetUserOption() ObjectTypeOptions {
 	uo.New = func(db *DB) interface{} {
 		return User{db: db, active: true}
 	}
-	uo.Get = func(m map[string][]byte, db *DB) (interface{}, []error) {
+	uo.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
 		e := make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
@@ -52,32 +52,32 @@ func GetUserOption() ObjectTypeOptions {
 
 		u := User{db: db}
 
-		if id, ok := m["ID"]; ok {
+		if id, ok := m[KeyValueKey{Main: "ID"}]; ok {
 			u.ID = db.FT["uint64"].Get(id).(uint64)
 		} else {
 			e = append(e, errors.New("The Data from the DB has no ID"))
 			return nil, e
 		}
-		if f, ok := m["firstName"]; ok {
+		if f, ok := m[KeyValueKey{Main: "firstName"}]; ok {
 			u.firstName = db.FT["string"].Get(f).(string)
 		}
-		if f, ok := m["lastName"]; ok {
+		if f, ok := m[KeyValueKey{Main: "lastName"}]; ok {
 			u.lastName = db.FT["string"].Get(f).(string)
 		}
-		if f, ok := m["email"]; ok {
+		if f, ok := m[KeyValueKey{Main: "email"}]; ok {
 			u.email = db.FT["string"].Get(f).(string)
 		}
-		if f, ok := m["active"]; ok {
+		if f, ok := m[KeyValueKey{Main: "active"}]; ok {
 			u.active = db.FT["bool"].Get(f).(bool)
 		}
-		if f, ok := m["age"]; ok {
+		if f, ok := m[KeyValueKey{Main: "age"}]; ok {
 			u.age = db.FT["int64"].Get(f).(int64)
 		}
 
 		return u, e
 	}
-	uo.Set = func(i interface{}, db *DB) (u map[string][]byte, e []error) {
-		u = make(map[string][]byte)
+	uo.Set = func(i interface{}, db *DB) (u map[KeyValueKey][]byte, e []error) {
+		u = make(map[KeyValueKey][]byte)
 		e = make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
@@ -97,20 +97,20 @@ func GetUserOption() ObjectTypeOptions {
 		d := i.(User)
 
 		if d.ID > 0 {
-			u["ID"] = db.FT["uint64"].Set(d.ID)
+			u[KeyValueKey{Main: "ID"}] = db.FT["uint64"].Set(d.ID)
 		}
 		if d.firstName != "" {
-			u["firstName"] = db.FT["string"].Set(d.firstName)
+			u[KeyValueKey{Main: "firstName"}] = db.FT["string"].Set(d.firstName)
 		}
 		if d.lastName != "" {
-			u["lastName"] = db.FT["string"].Set(d.lastName)
+			u[KeyValueKey{Main: "lastName"}] = db.FT["string"].Set(d.lastName)
 		}
 		if d.email != "" {
-			u["email"] = db.FT["string"].Set(d.email)
+			u[KeyValueKey{Main: "email"}] = db.FT["string"].Set(d.email)
 		}
-		u["active"] = db.FT["bool"].Set(d.active)
+		u[KeyValueKey{Main: "active"}] = db.FT["bool"].Set(d.active)
 		if d.age > 0 {
-			u["age"] = db.FT["int64"].Set(d.age)
+			u[KeyValueKey{Main: "age"}] = db.FT["int64"].Set(d.age)
 		}
 		return
 	}

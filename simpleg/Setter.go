@@ -36,7 +36,7 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, string(id), fieldName))
 		//If item does not exist in the db just create the new index only
 		if oldErr != nil && oldErr == badger.ErrKeyNotFound {
-			s.DB.KV.Writer2.Write(s.DB.Options.DBName, objectType, fieldName, string(value), string(id), id)
+			s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
 			return nil
 		}
 		//If another error that is not atype badger.ErrKeyNotFound just return the error
@@ -56,7 +56,7 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 		s.DB.KV.Writer2.Delete(s.DB.Options.DBName, objectType, fieldName, string(oldValue), string(id))
 		//create new index
 
-		s.DB.KV.Writer2.Write(s.DB.Options.DBName, objectType, fieldName, string(value), string(id), id)
+		s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
 	}
 	return err
 }
@@ -92,23 +92,23 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 		//s.DB.KV.DoneWriteTransaction()
 	}()
 
-	_, ok = m["ID"]
+	_, ok = m[KeyValueKey{Main: "ID"}]
 	if !ok {
 		i, ee := s.DB.KV.GetNextID(typ)
 		if ee != nil {
 			return i, append(e, ee)
 		}
-		m["ID"] = ftUint64.Set(i)
-		s.DB.KV.Writer2.Write(s.DB.Options.DBName, typ, "ID", string(m["ID"]), string(m["ID"]), m["ID"])
+		m[KeyValueKey{Main: "ID"}] = ftUint64.Set(i)
+		s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "ID"}], s.DB.Options.DBName, typ, "ID", string(m[KeyValueKey{Main: "ID"}]), string(m[KeyValueKey{Main: "ID"}]))
 	}
 
-	ib = m["ID"]
-	delete(m, "ID")
+	ib = m[KeyValueKey{Main: "ID"}]
+	delete(m, KeyValueKey{Main: "ID"})
 
 	for key, f := range m {
-		er = s.setObjectFieldIndex(tnx, typ, key, f, ib)
+		er = s.setObjectFieldIndex(tnx, typ, key.Main, f, ib)
 		if er == nil {
-			s.DB.KV.Writer2.Write(s.DB.Options.DBName, typ, string(ib), key, "", f)
+			s.DB.KV.Writer2.Write(f, s.DB.Options.DBName, typ, string(ib), key.Main)
 		} else {
 			e = append(e, er)
 		}
@@ -150,7 +150,7 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 	}()
 	er = s.setObjectFieldIndex(tnx, objectTypeName, fieldName, fieldNewValueValidatedbytes, ftUint64.Set(objectId))
 	if er == nil {
-		s.DB.KV.Writer2.Write(s.DB.Options.DBName, objectTypeName, string(objectId), fieldName, "", fieldNewValueValidatedbytes)
+		s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, objectTypeName, string(objectId), fieldName)
 	} else {
 		e = append(e, er)
 	}

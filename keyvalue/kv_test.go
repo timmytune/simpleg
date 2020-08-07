@@ -94,7 +94,7 @@ func TestWrite2(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.Writer2.Write("key", "key2", "key3", "key4--", strconv.Itoa(rand.Intn(10000000000)), IntToBytes(rand.Intn(10000000000)))
+			s.Writer2.Write(IntToBytes(rand.Intn(10000000000)), "key", "key2", "key3", "key4--", strconv.Itoa(rand.Intn(10000000000)))
 			//data := GetWriteData("key", "key2", "key3", "key4", strconv.Itoa(rand.Intn(10000000000)), IntToBytes(rand.Intn(10000000000)), "^")
 			//data := "key" + "^" + "key2" + "^" + "key3" + "^" + strconv.Itoa(rand.Intn(10000000000))
 			//WriterInput <- data // WriterData{[]byte(data), []byte("value"), true}

@@ -1,7 +1,6 @@
 package keyvalue
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"sync"
@@ -32,24 +31,9 @@ func GetWriteData(k1, k2, k3, k4, k5 string, value []byte, seprator string) Writ
 	return WriterData{[]byte(data), value, true}
 }
 
-func (b *BatchWriter) Write(k1, k2, k3, k4, k5 string, value []byte) {
-	var buffer bytes.Buffer
+func (b *BatchWriter) Write(value []byte, k ...string) {
 	//b.lock.Lock()
-	seperator := b.kv.D
-	//b.lock.Unlock()
-	buffer.WriteString(k1)
-	buffer.WriteString(seperator)
-	buffer.WriteString(k2)
-	buffer.WriteString(seperator)
-	buffer.WriteString(k3)
-	buffer.WriteString(seperator)
-	buffer.WriteString(k4)
-	if k5 != "" {
-		buffer.WriteString(seperator)
-		buffer.WriteString(k5)
-	}
-	//b.lock.Lock()
-	b.input <- WriterData{buffer.Bytes(), value, true}
+	b.input <- WriterData{[]byte(strings.Join(k, b.kv.D)), value, true}
 	//b.lock.Unlock()
 
 }
