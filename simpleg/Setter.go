@@ -105,10 +105,10 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 	ib = m[KeyValueKey{Main: "ID"}]
 	delete(m, KeyValueKey{Main: "ID"})
 
-	for key, f := range m {
-		er = s.setObjectFieldIndex(tnx, typ, key.Main, f, ib)
+	for key, v := range m {
+		er = s.setObjectFieldIndex(tnx, typ, key.Main, v, ib)
 		if er == nil {
-			s.DB.KV.Writer2.Write(f, s.DB.Options.DBName, typ, string(ib), key.Main)
+			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(ib), key.GetFullString(s.DB.KV.D))
 		} else {
 			e = append(e, er)
 		}
@@ -177,7 +177,7 @@ func (s *SetterFactory) Run() {
 			fmt.Println("Recovered in Setter.Run ", r)
 
 			if er.Errors == nil {
-				er.Errors = make([]error, 1)
+				er.Errors = make([]error, 0)
 			}
 			switch x := r.(type) {
 			case string:

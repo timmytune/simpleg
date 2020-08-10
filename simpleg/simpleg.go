@@ -42,26 +42,32 @@ type ObjectTypeOptions struct {
 }
 
 type Options struct {
-	DataDirectory          string
-	DBName                 string
-	TruncateDB             bool
-	DBDelimiter            string
-	KVWriterGoroutineCount int
-	KVWriterChannelLength  int
-	SetterChannelLength    int
-	SetterGoroutineCount   int
+	DataDirectory               string
+	DBName                      string
+	TruncateDB                  bool
+	DBDelimiter                 string
+	KVWriterGoroutineCount      int
+	KVWriterChannelLength       int
+	SetterChannelLength         int
+	SetterGoroutineCount        int
+	GetterChannelLength         int
+	GetterGoroutineCount        int
+	transactionValidityDuration uint64
 }
 
 func DefaultOptions() Options {
 	return Options{
-		DataDirectory:          "/db/simpleg",
-		DBName:                 "simpleg",
-		TruncateDB:             true,
-		DBDelimiter:            "^",
-		KVWriterChannelLength:  500,
-		KVWriterGoroutineCount: 100,
-		SetterChannelLength:    500,
-		SetterGoroutineCount:   200}
+		DataDirectory:               "/db/simpleg",
+		DBName:                      "simpleg",
+		TruncateDB:                  true,
+		DBDelimiter:                 "^",
+		KVWriterChannelLength:       500,
+		KVWriterGoroutineCount:      100,
+		SetterChannelLength:         500,
+		SetterGoroutineCount:        200,
+		GetterChannelLength:         1500,
+		GetterGoroutineCount:        500,
+		transactionValidityDuration: uint64(10)}
 }
 
 // DB is simpleg's main db
@@ -97,7 +103,7 @@ func (db *DB) Set(d ...interface{}) (s SetterRet) {
 			fmt.Println("Recovered in Setter.Run ", r)
 			s = SetterRet{}
 			if s.Errors == nil {
-				s.Errors = make([]error, 1)
+				s.Errors = make([]error, 0)
 			}
 			switch x := r.(type) {
 			case string:
@@ -120,8 +126,24 @@ func (db *DB) Set(d ...interface{}) (s SetterRet) {
 
 }
 
-func (db *DB) Get(d ...interface{}) *GetterRet {
-	return &Getter{DB: db}
+func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
+	q := Query{DB: db}
+	var ret GetterRet
+
+	switch ins {
+	case "object.single":
+		n := NodeQuery{}
+		n.Name("da").Object(d[0].(string)).Q("ID", "==", d[1])
+		q.Do("objects", n)
+		ret = q.Return("single", "da", 0)
+	case "object.new":
+		q.Do("object.new", d[0].(string))
+		ret = q.Return("skip")
+	default:
+		ret.Errors = make([]error, 0)
+		ret.Errors = append(ret.Errors, errors.New("Invalid Instructions"))
+	}
+	return &ret
 }
 
 func (db *DB) Query() Query {
@@ -138,7 +160,7 @@ func (db *DB) Start() error {
 	bd.Truncate = db.Options.TruncateDB
 	db.KV, err = kv.Open(kd, bd)
 	db.Setter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
-	db.Getter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
+	db.Getter.Start(db, db.Options.GetterGoroutineCount, db.Options.GetterChannelLength, db.Options.transactionValidityDuration)
 	return err
 }
 

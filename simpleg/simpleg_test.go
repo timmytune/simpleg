@@ -195,21 +195,21 @@ func TestMain(m *testing.M) {
 func TestSetObject(t *testing.T) {
 	var wg sync.WaitGroup
 	start := time.Now()
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			user, err := db.Get().NewObject("User")
-			if err != nil {
-				t.Error("simpleg.Set Failed Test get user:", err)
+			ret := db.Get("object.new", "User")
+			if len(ret.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test get user:", ret)
 			}
-			u, _ := user.(User)
+			u, _ := ret.Data.(User)
 			u.firstName = "Yinka"
 			u.lastName = "Adedoyin"
 			u.email = "timmytune002@gmail.com"
 			u.age = int64(19)
-			ret := db.Set("save.object", "User", u)
-			if len(ret.Errors) != 0 {
+			re := db.Set("save.object", "User", u)
+			if len(re.Errors) != 0 {
 				t.Error("simpleg.Set Failed Test got:", ret)
 			}
 		}()
@@ -217,7 +217,6 @@ func TestSetObject(t *testing.T) {
 	wg.Wait()
 	//data, _ := db.KV.Stream([]string{"simpleg"}, nil)
 	//log.Print("Data in the database", data)
-	time.Sleep(1 * time.Second)
 	elapsed := time.Since(start)
 	log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
 
@@ -226,11 +225,11 @@ func TestSetObject(t *testing.T) {
 func TestSetters(t *testing.T) {
 	start := time.Now()
 
-	user, err := db.Get().NewObject("User")
-	if err != nil {
-		t.Error("simpleg.Set Failed Test get user:", err)
+	re := db.Get("object.new", "User")
+	if len(re.Errors) > 0 {
+		t.Error("simpleg.Set Failed Test get user:", re)
 	}
-	u, _ := user.(User)
+	u, _ := re.Data.(User)
 	u.firstName = "Femi"
 	u.lastName = "Adedoyin"
 	u.email = "timmytune001@gmail.com"
@@ -240,7 +239,11 @@ func TestSetters(t *testing.T) {
 		t.Error("simpleg.Set Failed Test got:", ret)
 	}
 
-	uu, _ := user.(User)
+	re = db.Get("object.new", "User")
+	if len(re.Errors) > 0 {
+		t.Error("simpleg.Set Failed Test get user:", re)
+	}
+	uu, _ := re.Data.(User)
 	uu.firstName = "Fe"
 	uu.lastName = "Ad"
 	uu.email = "timmytune0gmail.com"
