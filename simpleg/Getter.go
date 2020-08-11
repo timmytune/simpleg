@@ -154,7 +154,6 @@ func (k *KeyValueKey) GetFullString(d string) string {
 	}
 	return k.Main + d + k.Subs
 }
-
 func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[KeyValueKey][]byte, []error) {
 	ret := make(map[KeyValueKey][]byte)
 	errs := make([]error, 0)
@@ -205,7 +204,7 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 	ret := ObjectList{}
 	ret.isIds = isIds
 	var errs []error
-	if node.Direction == "" {
+	if node.Direction != "" {
 		errs = append(errs, ErrLinkInObjectLoader)
 		return nil, errs
 	}
@@ -230,12 +229,14 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 						errs = append(errs, err...)
 					}
 					if obj != nil {
+						obj[KeyValueKey{Main: "ID"}] = rawID
 						ret.Objects = append(ret.Objects, obj)
 					}
 
 				}
 				return &ret, errs
 			}
+
 		}
 	}
 
@@ -348,7 +349,7 @@ func GetterObjects(g *GetterFactory, txn *badger.Txn, data *map[string]interface
 // for returntype 1. params [0] Object name (String), params [1] Index of the objects to return (int)
 //return interface{}
 func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
-	if q.ReturnType == 0 {
+	if q.ReturnType == 1 {
 		da := (*data)[qData[0].(string)]
 		switch da.(type) {
 		case *ObjectList:
@@ -364,7 +365,7 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 
 		}
 	}
-	if q.ReturnType == 1 {
+	if q.ReturnType == 2 {
 		da := (*data)[qData[0].(string)]
 		switch da.(type) {
 		case *ObjectList:
@@ -377,7 +378,7 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 			}
 		}
 	}
-	if q.ReturnType == 2 {
+	if q.ReturnType == 3 {
 		da := (*data)[qData[0].(string)]
 		switch da.(type) {
 		case *ObjectList:

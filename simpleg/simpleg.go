@@ -57,7 +57,7 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		DataDirectory:               "/db/simpleg",
+		DataDirectory:               "/data/simpleg",
 		DBName:                      "simpleg",
 		TruncateDB:                  true,
 		DBDelimiter:                 "^",
@@ -123,7 +123,6 @@ func (db *DB) Set(d ...interface{}) (s SetterRet) {
 	db.Setter.Input <- j
 	s = <-ch
 	return
-
 }
 
 func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
@@ -134,7 +133,7 @@ func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
 	case "object.single":
 		n := NodeQuery{}
 		n.Name("da").Object(d[0].(string)).Q("ID", "==", d[1])
-		q.Do("objects", n)
+		q.Do("object", n)
 		ret = q.Return("single", "da", 0)
 	case "object.new":
 		q.Do("object.new", d[0].(string))

@@ -49,7 +49,8 @@ func GetUserOption() ObjectTypeOptions {
 				}
 			}
 		}()
-
+		db.Lock.Lock()
+		defer db.Lock.Unlock()
 		u := User{db: db}
 
 		if id, ok := m[KeyValueKey{Main: "ID"}]; ok {
@@ -73,7 +74,6 @@ func GetUserOption() ObjectTypeOptions {
 		if f, ok := m[KeyValueKey{Main: "age"}]; ok {
 			u.age = db.FT["int64"].Get(f).(int64)
 		}
-
 		return u, e
 	}
 	uo.Set = func(i interface{}, db *DB) (u map[KeyValueKey][]byte, e []error) {
@@ -95,7 +95,8 @@ func GetUserOption() ObjectTypeOptions {
 			}
 		}()
 		d := i.(User)
-
+		db.Lock.Lock()
+		defer db.Lock.Unlock()
 		if d.ID > 0 {
 			u[KeyValueKey{Main: "ID"}] = db.FT["uint64"].Set(d.ID)
 		}
@@ -131,6 +132,8 @@ func GetUserOption() ObjectTypeOptions {
 				}
 			}
 		}()
+		db.Lock.Lock()
+		defer db.Lock.Unlock()
 		d := i.(User)
 		x, y, z := db.OT["User"].Fields["firstName"].Validate(d.firstName, db)
 		if !x {
@@ -265,4 +268,26 @@ func TestSetters(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	//data, _ := db.KV.Stream([]string{"simpleg"}, nil) //, "^", "User", "^", string(ret.ID)
 	//log.Print("Data in the database", data)
+}
+
+func TestGetObject(t *testing.T) {
+	//var wg sync.WaitGroup
+	start := time.Now()
+	for i := 1; i < 5; i++ {
+		//wg.Add(1)
+		//go func() {
+		//defer wg.Done()
+		ret := db.Get("object.single", "User", uint64(i))
+		if len(ret.Errors) > 0 {
+			t.Error("simpleg.Set Failed Test get user:", ret)
+		}
+		u, _ := ret.Data.(User)
+		log.Print("-------------------------------------------- Test Get Object", u)
+
+		//}()
+	}
+	//wg.Wait()
+	elapsed := time.Since(start)
+	log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
+
 }
