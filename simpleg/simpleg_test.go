@@ -26,6 +26,13 @@ type User struct {
 	age       int64
 }
 
+type Friend struct {
+	db       *DB
+	FROM     uint64
+	TO       uint64
+	accepted bool
+}
+
 func GetUserOption() ObjectTypeOptions {
 	uo := ObjectTypeOptions{}
 	uo.Name = "User"
@@ -173,6 +180,116 @@ func GetUserOption() ObjectTypeOptions {
 	return uo
 }
 
+func GetFriendLinkOption() LinkTypeOptions {
+	fl := LinkTypeOptions{}
+	fl.OppositeSame = true
+	fl.Name = "Friend"
+	fl.From = "User"
+	fl.To = "User"
+	fl.New = func(db *DB) interface{} {
+		return Friend{db: db}
+	}
+	fl.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
+		e := make([]error, 0)
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Println("Recovered in Get User Object type", r)
+				switch x := r.(type) {
+				case string:
+					err := errors.New(x)
+					e = append(e, err)
+				case error:
+					err := x
+					e = append(e, err)
+				default:
+					e = append(e, errors.New("unknown panic"))
+				}
+			}
+		}()
+		db.Lock.Lock()
+		defer db.Lock.Unlock()
+		friend := Friend{db: db}
+		if f, ok := m[KeyValueKey{Main: "FROM"}]; ok {
+			friend.FROM = db.FT["uint64"].Get(f).(uint64)
+		} else {
+			e = append(e, errors.New("The Data from the DB has no FROM field set"))
+			return nil, e
+		}
+		if f, ok := m[KeyValueKey{Main: "TO"}]; ok {
+			friend.TO = db.FT["uint64"].Get(f).(uint64)
+		} else {
+			e = append(e, errors.New("The Data from the DB has no TO field set"))
+			return nil, e
+		}
+		if f, ok := m[KeyValueKey{Main: "accepted"}]; ok {
+			friend.accepted = db.FT["bool"].Get(f).(bool)
+		}
+		return u, e
+	}
+	fl.Set = func(i interface{}, db *DB) (u map[KeyValueKey][]byte, e []error) {
+		u = make(map[KeyValueKey][]byte)
+		e = make([]error, 0)
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Println("Recovered in Get User", r)
+				switch x := r.(type) {
+				case string:
+					err := errors.New(x)
+					e = append(e, err)
+				case error:
+					err := x
+					e = append(e, err)
+				default:
+					e = append(e, errors.New("unknown panic"))
+				}
+			}
+		}()
+		d, ok := i.(Friend)
+		if !ok {
+			e = append(e, errors.New("The Provided struct is not of type Friend"))
+			return nil, e
+		}
+		db.Lock.Lock()
+		defer db.Lock.Unlock()
+		if d.FROM > 0 {
+			u[KeyValueKey{Main: "FROM"}] = db.FT["uint64"].Set(d.FROM)
+		} else {
+			e = append(e, errors.New("From Field not provided"))
+		}
+		if d.TO > 0 {
+			u[KeyValueKey{Main: "TO"}] = db.FT["uint64"].Set(d.TO)
+		} else {
+			e = append(e, errors.New("TO Field not provided"))
+		}
+		u[KeyValueKey{Main: "accepted"}] = db.FT["bool"].Set(d.accepted)
+		return
+	}
+	fl.Validate = func(i interface{}, db *DB) (interface{}, []error) {
+		e := make([]error, 0)
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Println("Recovered in Validate User", r)
+				switch x := r.(type) {
+				case string:
+					err := errors.New(x)
+					e = append(e, err)
+				case error:
+					err := x
+					e = append(e, err)
+				default:
+					e = append(e, errors.New("unknown panic"))
+				}
+			}
+		}()
+		return i, e
+	}
+	//fv := FieldValidation{}
+	fl.Fields = make(map[string]FieldOptions)
+	fl.Fields["accepted"] = FieldOptions{FieldType: "bool"}
+
+	return fl
+}
+
 func TestMain(m *testing.M) {
 
 	s = FieldTypeBool{}
@@ -184,6 +301,7 @@ func TestMain(m *testing.M) {
 	db = &DB{}
 	db.Init(opt)
 	db.AddObjectType(GetUserOption())
+	db.AddLinkType(GetFriendLinkOption())
 	db.Start()
 
 	ret := m.Run()

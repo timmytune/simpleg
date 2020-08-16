@@ -8,4 +8,5 @@ require (
 	github.com/dgraph-io/badger/v2 v2.0.3
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/golang/protobuf v1.3.1
+	github.com/rs/zerolog v1.19.0
 )

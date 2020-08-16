@@ -3,8 +3,11 @@ package simpleg
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	kv "ytech.com.ng/projects/jists/keyvalue"
 )
 
@@ -39,6 +42,18 @@ type ObjectTypeOptions struct {
 	Validate func(interface{}, *DB) (interface{}, []error)
 	Get      func(map[KeyValueKey][]byte, *DB) (interface{}, []error)
 	New      func(*DB) interface{}
+}
+
+type LinkTypeOptions struct {
+	Name         string
+	OppositeSame bool
+	From         string
+	To           string
+	Fields       map[string]FieldOptions
+	Set          func(interface{}, *DB) (map[KeyValueKey][]byte, []error)
+	Validate     func(interface{}, *DB) (interface{}, []error)
+	Get          func(map[KeyValueKey][]byte, *DB) (interface{}, []error)
+	New          func(*DB) interface{}
 }
 
 type Options struct {
@@ -77,17 +92,28 @@ type DB struct {
 	FT      map[string]FieldType
 	FTO     map[string]FieldTypeOptions
 	OT      map[string]ObjectTypeOptions
+	LT      map[string]LinkTypeOptions
 	Setter  SetterFactory
 	Getter  GetterFactory
 	Lock    sync.Mutex
 }
 
-func (db *DB) Init(o Options) {
+func (db *DB) Init(o Options) error {
+	file, err := os.OpenFile("logs.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		return err
+	}
+	os.Stderr = file
+	//log.SetOutput(file)
+	log.Info().Msg("Database initiating")
+
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	db.Lock = sync.Mutex{}
 	db.Options = o
 	db.FT = make(map[string]FieldType)
 	db.FTO = make(map[string]FieldTypeOptions)
 	db.OT = make(map[string]ObjectTypeOptions)
+	db.LT = make(map[string]LinkTypeOptions)
 	db.Setter = SetterFactory{}
 	db.Getter = GetterFactory{}
 	db.AddFieldType(FieldTypeOptions{Name: "bool", AllowIndexing: false}, &FieldTypeBool{})
@@ -95,8 +121,10 @@ func (db *DB) Init(o Options) {
 	db.AddFieldType(FieldTypeOptions{Name: "int64", AllowIndexing: true}, &FieldTypeInt64{})
 	db.AddFieldType(FieldTypeOptions{Name: "uint64", AllowIndexing: true}, &FieldTypeUint64{})
 
+	log.Info().Msg("Database initiated")
+	return nil
 }
-func (db *DB) Set(d ...interface{}) (s SetterRet) {
+func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	defer func() {
 		r := recover()
 		if r != nil {
@@ -116,15 +144,14 @@ func (db *DB) Set(d ...interface{}) (s SetterRet) {
 		}
 	}()
 	j := SetterJob{}
-	j.Ins = d[0].(string)
-	j.Data = d[1:]
+	j.Ins = ins
+	j.Data = d
 	ch := make(chan SetterRet)
 	j.Ret = ch
 	db.Setter.Input <- j
 	s = <-ch
 	return
 }
-
 func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
 	q := Query{DB: db}
 	var ret GetterRet
@@ -140,7 +167,7 @@ func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
 		ret = q.Return("skip")
 	default:
 		ret.Errors = make([]error, 0)
-		ret.Errors = append(ret.Errors, errors.New("Invalid Instructions"))
+		ret.Errors = append(ret.Errors, errors.New("Invalid Instruction"))
 	}
 	return &ret
 }
@@ -150,6 +177,7 @@ func (db *DB) Query() Query {
 }
 
 func (db *DB) Start() error {
+	log.Info().Msg("Database starting...")
 	var err error
 	kd := kv.GetDefaultKVOptions()
 	kd.D = db.Options.DBDelimiter
@@ -160,7 +188,9 @@ func (db *DB) Start() error {
 	db.KV, err = kv.Open(kd, bd)
 	db.Setter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
 	db.Getter.Start(db, db.Options.GetterGoroutineCount, db.Options.GetterChannelLength, db.Options.transactionValidityDuration)
+	log.Info().Msg("Database started")
 	return err
+
 }
 
 func (db *DB) Close() error {
@@ -185,5 +215,14 @@ func (db *DB) AddObjectType(o ObjectTypeOptions) error {
 		return errors.New("invalid ObjectTypeOption provided")
 	}
 	db.OT[o.Name] = o
+	return err
+}
+
+func (db *DB) AddLinkType(l LinkTypeOptions) error {
+	var err error
+	if l.Name == "" {
+		return errors.New("invalid LinkTypeOption provided")
+	}
+	db.LT[l.Name] = l
 	return err
 }

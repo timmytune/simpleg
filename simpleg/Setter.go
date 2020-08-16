@@ -120,6 +120,65 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 	return i, e
 }
 
+func (s *SetterFactory) link(typ string, o interface{}) []error {
+	s.DB.Lock.Lock()
+	ftUint64 := s.DB.FT["uint64"]
+	ot, ok := s.DB.LT[typ]
+	s.DB.Lock.Unlock()
+	var e []error
+	if !ok {
+		e = append(e, errors.New("link of type '"+typ+"' cannot be found in the database"))
+		return e
+	}
+
+	v, e := ot.Validate(o, s.DB)
+
+	if len(e) > 0 {
+		return e
+	}
+
+	m, e := ot.Set(v, s.DB)
+	if len(e) != 0 {
+		return e
+	}
+
+	tnx := s.DB.KV.DB.NewTransaction(false)
+	defer func() {
+		tnx.Discard()
+	}()
+
+	from, ok := m[KeyValueKey{Main: "FROM"}]
+	if !ok {
+		e = append(e, errors.New("FROM field is not provided"))
+		return e
+	}
+
+	to, ok := m[KeyValueKey{Main: "TO"}]
+	if !ok {
+		e = append(e, errors.New("TO field is not provided"))
+		return e
+	}
+
+	_, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, ot.Name, string(from), string(to), "FROM-TO"))
+
+	ib = m[KeyValueKey{Main: "ID"}]
+	delete(m, KeyValueKey{Main: "ID"})
+
+	for key, v := range m {
+		er = s.setObjectFieldIndex(tnx, typ, key.Main, v, ib)
+		if er == nil {
+			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(ib), key.GetFullString(s.DB.KV.D))
+		} else {
+			e = append(e, er)
+		}
+
+	}
+
+	//_ = s.DB.KV.FlushWrites()
+
+	return i, e
+}
+
 func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fieldName string, fieldNewValue interface{}) (uint64, []error) {
 	s.DB.Lock.Lock()
 	ftUint64 := s.DB.FT["uint64"]
