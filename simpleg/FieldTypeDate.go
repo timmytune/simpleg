@@ -21,16 +21,22 @@ func (f *FieldTypeDate) New() interface{} {
 	return time.Now()
 }
 
-func (f *FieldTypeDate) Set(v interface{}) []byte {
-	d := v.(int64)
-	buf := make([]byte, binary.MaxVarintLen64)
-	binary.PutVarint(buf, d)
-	return buf
+func (f *FieldTypeDate) Set(v interface{}) ([]byte, error) {
+	d, ok := v.(time.Time)
+	if !ok {
+		return nil, errors.New("Provided interface is not of type Time")
+	}
+	t, err := d.MarshalJSON()
+	return t, err
 }
 
-func (f *FieldTypeDate) Get(v []byte) interface{} {
-	i, _ := binary.Varint(v)
-	return i
+func (f *FieldTypeDate) Get(v []byte) (interface{}, error) {
+	t := time.Now()
+	err := t.UnmarshalText(v)
+	if err != nil {
+		return t, err
+	}
+	return t, err
 }
 
 func (f *FieldTypeDate) Compare(typ string, a []byte, b []byte) (bool, error) {

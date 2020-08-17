@@ -16,7 +16,7 @@ func TestNew(t *testing.T) {
 func TestGet(t *testing.T) {
 	b := make([]byte, 4)
 	binary.LittleEndian.PutUint16(b, 1)
-	if e := s.Get(b); e != true {
+	if e, _ := s.Get(b); e != true {
 		t.Error("FieldTypeBool.Get Failed Test")
 	}
 }
@@ -25,7 +25,7 @@ func TestSet(t *testing.T) {
 	b := make([]byte, 4)
 	binary.LittleEndian.PutUint16(b, 0)
 	// should be able to add a key and value
-	c := s.Set(false)
+	c, _ := s.Set(false)
 	if bytes.Compare(b, c) != 0 {
 		t.Error("FieldTypeBool.Set Failed Test got:", c)
 	}

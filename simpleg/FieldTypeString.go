@@ -43,7 +43,7 @@ func (f *FieldTypeString) Compare(typ string, a []byte, b []byte) (bool, error) 
 	case "HasSuffix":
 		return bytes.HasSuffix(a, b), err
 	default:
-		return false, errors.New("fieldtype string does not support this comparison operator")
+		return false, errors.New("fieldtype string does not support the comparison operator " + typ)
 	}
 
 }

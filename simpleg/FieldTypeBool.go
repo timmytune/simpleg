@@ -20,23 +20,26 @@ func (f *FieldTypeBool) New() interface{} {
 	return false
 }
 
-func (f *FieldTypeBool) Set(v interface{}) []byte {
+func (f *FieldTypeBool) Set(v interface{}) ([]byte, error) {
 	b := make([]byte, 4)
-	d, _ := v.(bool)
+	d, ok := v.(bool)
+	if !ok {
+		return b, errors.New("Provided interface is not of type bool")
+	}
 	if d {
 		binary.LittleEndian.PutUint16(b, 1)
 	} else {
 		binary.LittleEndian.PutUint16(b, 0)
 	}
-	return b
+	return b, nil
 }
 
-func (f *FieldTypeBool) Get(v []byte) interface{} {
+func (f *FieldTypeBool) Get(v []byte) (interface{}, error) {
 
 	if binary.LittleEndian.Uint16(v) == 1 {
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 func (f *FieldTypeBool) Compare(typ string, a []byte, b []byte) (bool, error) {

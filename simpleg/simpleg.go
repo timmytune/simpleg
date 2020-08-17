@@ -17,8 +17,8 @@ var (
 
 type FieldType interface {
 	GetOption() map[string]string
-	Set(interface{}) []byte
-	Get([]byte) interface{}
+	Set(interface{}) ([]byte, error)
+	Get([]byte) (interface{}, error)
 	Compare(string, []byte, []byte) (bool, error)
 	CompareIndexed(typ string, a interface{}) (string, string, error)
 }
