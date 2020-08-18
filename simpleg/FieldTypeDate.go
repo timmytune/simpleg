@@ -41,31 +41,46 @@ func (f *FieldTypeDate) Get(v []byte) (interface{}, error) {
 
 func (f *FieldTypeDate) Compare(typ string, a []byte, b []byte) (bool, error) {
 	var err error
-	ia, _ := binary.Varint(a)
-	ib, _ := binary.Varint(b)
+	t := time.Now()
+	err = t.UnmarshalText(a)
+	if err != nil {
+		false, errors.New("Comparism error in FieldType date " + typ + " | " + string(a) + " | " + string(b) )
+	}
+	t2 := time.Now()
+	err = t2.UnmarshalText(b)
+	if err != nil {
+		false, errors.New("Comparism error in FieldType date " + typ + " | " + string(a) + " | " + string(b) )
+	}
 
 	switch typ {
 	case "==":
-		return (ia == ib), err
+		return t.Equal(t2), err
 	case "!=":
-		return (ia != ib), err
+		return !(t.Equal(t2)), err
 	case ">":
-		return (ia > ib), err
+		return t.After(t2), err
 	case ">=":
-		return (ia >= ib), err
+		return (t.Equal(t2) || t.After(t2)), err
 	case "<":
-		return (ia < ib), err
+		return t.Before(t2), err
 	case "<=":
-		return (ia <= ib), err
+		return (t.Before(t2) || t.Equal(t2)), err
 	default:
-		return false, errors.New("fieldtype int64 does not support this comparison operator")
+		return false, errors.New("fieldtype date does not support this comparison operator " + typ)
 	}
 
 }
 
 func (f *FieldTypeDate) CompareIndexed(typ string, a interface{}) (string, string, error) {
-	var err error
-	s := strconv.FormatInt(a.(int64), 10)
+	t, err := a.(time.Time)
+	if err != nil {
+		return "", "", errors.New("Provided parameter is not of the type time.Time" )
+	}
+	b, err := t.MarshalText()
+	if err != nil {
+		return "", "", errors.New("Provided parameter cant be converted to string in Fieldtype date" )
+	}
+	s := string(b)
 	switch typ {
 	case "==":
 		return s, "=", err
@@ -78,7 +93,7 @@ func (f *FieldTypeDate) CompareIndexed(typ string, a interface{}) (string, strin
 	case "<=":
 		return s, "-=", err
 	default:
-		return "", "", errors.New("fieldtype int64 does not support this comparison operator for indexed field")
+		return "", "", errors.New("fieldtype date does not support this comparison operator for indexed field")
 	}
 
 }
