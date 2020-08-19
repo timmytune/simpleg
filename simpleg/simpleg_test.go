@@ -14,6 +14,7 @@ var s FieldTypeBool
 var z FieldTypeString
 var i FieldTypeInt64
 var u FieldTypeUint64
+var d FieldTypeDate
 var db *DB
 
 type User struct {
@@ -296,6 +297,7 @@ func TestMain(m *testing.M) {
 	z = FieldTypeString{}
 	i = FieldTypeInt64{}
 	u = FieldTypeUint64{}
+	d = FieldTypeDate{}
 
 	opt := DefaultOptions()
 	db = &DB{}

@@ -1,9 +1,7 @@
 package simpleg
 
 import (
-	"encoding/binary"
 	"errors"
-	"strconv"
 	"time"
 )
 
@@ -44,12 +42,12 @@ func (f *FieldTypeDate) Compare(typ string, a []byte, b []byte) (bool, error) {
 	t := time.Now()
 	err = t.UnmarshalText(a)
 	if err != nil {
-		false, errors.New("Comparism error in FieldType date " + typ + " | " + string(a) + " | " + string(b) )
+		return false, errors.New("Comparism error in FieldType date " + typ + " | " + string(a) + " | " + string(b))
 	}
 	t2 := time.Now()
 	err = t2.UnmarshalText(b)
 	if err != nil {
-		false, errors.New("Comparism error in FieldType date " + typ + " | " + string(a) + " | " + string(b) )
+		return false, errors.New("Comparism error in FieldType date " + typ + " | " + string(a) + " | " + string(b))
 	}
 
 	switch typ {
@@ -72,13 +70,14 @@ func (f *FieldTypeDate) Compare(typ string, a []byte, b []byte) (bool, error) {
 }
 
 func (f *FieldTypeDate) CompareIndexed(typ string, a interface{}) (string, string, error) {
-	t, err := a.(time.Time)
-	if err != nil {
-		return "", "", errors.New("Provided parameter is not of the type time.Time" )
+	var err error
+	t, ok := a.(time.Time)
+	if !ok {
+		return "", "", errors.New("Provided parameter is not of the type time.Time")
 	}
 	b, err := t.MarshalText()
 	if err != nil {
-		return "", "", errors.New("Provided parameter cant be converted to string in Fieldtype date" )
+		return "", "", errors.New("Provided parameter cant be converted to string in Fieldtype date")
 	}
 	s := string(b)
 	switch typ {
