@@ -14,14 +14,14 @@ func TestNew2(t *testing.T) {
 
 func TestGet2(t *testing.T) {
 	b := []byte("new")
-	if e := z.Get(b); e != "new" {
+	if e, _ := z.Get(b); e != "new" {
 		t.Error("FieldTypeString.Get Failed Test")
 	}
 }
 
 func TestSet2(t *testing.T) {
-	b := z.Set("new")
-	c := z.Set("new")
+	b, _ := z.Set("new")
+	c, _ := z.Set("new")
 	if bytes.Compare(b, c) != 0 {
 		t.Error("FieldTypeString.Set Failed Test got:", c)
 	}
@@ -29,11 +29,11 @@ func TestSet2(t *testing.T) {
 
 func TestCompare2(t *testing.T) {
 	// should be able to add a key and value
-	a := z.Set("new")
-	b := z.Set("new")
-	c := z.Set("new2")
-	e := z.Set("NEW")
-	f := z.Set("ew")
+	a, _ := z.Set("new")
+	b, _ := z.Set("new")
+	c, _ := z.Set("new2")
+	e, _ := z.Set("NEW")
+	f, _ := z.Set("ew")
 
 	if d, _ := z.Compare("==", a, b); d != true {
 		t.Error("FieldTypeString.Compare.equal Failed Test:", d)

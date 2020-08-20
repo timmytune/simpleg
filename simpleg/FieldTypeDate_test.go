@@ -8,7 +8,7 @@ import (
 func TestNew5(t *testing.T) {
 	// should be able to add a key and value
 	b := d.New()
-	t, ok := b.(time.Time)
+	_, ok := b.(time.Time)
 	if !ok {
 		t.Error("FieldTypeDate.New Failed Test:")
 	}
@@ -24,8 +24,8 @@ func TestGet5(t *testing.T) {
 	if err != nil {
 		t.Error("FieldTypeDate.Get Failed Test" + err.Error())
 	}
-	t2, err := e.(time.Time)
-	if err != nil {
+	t2, bul := e.(time.Time)
+	if !bul {
 		t.Error("FieldTypeDate.Get Failed Test" + err.Error())
 	}
 	if !(t1.Equal(t2)) {
@@ -35,67 +35,68 @@ func TestGet5(t *testing.T) {
 
 func TestCompare5(t *testing.T) {
 	// should be able to add a key and value
-	a := d.Set(int64(10))
-	b := i.Set(int64(10))
-	c := i.Set(int64(11))
-	e := i.Set(int64(9))
+	t2 := time.Now()
+	a, _ := d.Set(t2)
+	b, _ := i.Set(t2)
+	c, _ := d.Set(time.Now())
+	e, _ := d.Set(time.Now())
 
-	if d, _ := i.Compare("==", a, b); d != true {
-		t.Error("FieldTypeInt64.Compare.== Failed Test:", d)
+	if d2, _ := d.Compare("==", a, b); d2 != true {
+		t.Error("FieldTypeDate.Compare.== Failed Test:", d2)
 	}
 
-	if d, _ := i.Compare("==", b, c); d == true {
-		t.Error("FieldTypeInt64.Compare.equal Failed Test:", d)
+	if d2, _ := d.Compare("==", b, c); d2 == true {
+		t.Error("FieldTypeDate.Compare.equal Failed Test:", d2)
 	}
 
-	if d, _ := i.Compare("!=", a, b); d == true {
-		t.Error("FieldTypeInt64.Compare.!= Failed Test:", d)
+	if d2, _ := d.Compare("!=", a, b); d2 == true {
+		t.Error("FieldTypeDate.Compare.!= Failed Test:", d2)
 	}
 
-	if d, _ := i.Compare(">", c, a); d != true {
-		t.Error("FieldTypeInt64.Compare.> Failed Test:", d)
+	if d2, _ := d.Compare(">", c, a); d2 != true {
+		t.Error("FieldTypeDate.Compare.> Failed Test:", d2)
 	}
 
-	if d, _ := i.Compare(">=", a, c); d == true {
-		t.Error("FieldTypeInt64.Compare.>= Failed Test:", d)
+	if d2, _ := d.Compare(">=", a, c); d2 == true {
+		t.Error("FieldTypeDate.Compare.>= Failed Test:", d2)
 	}
 
-	if d, _ := i.Compare("<", a, c); d != true {
-		t.Error("FieldTypeInt64.Compare.< Failed Test:", d)
+	if d2, _ := d.Compare("<", a, c); d2 != true {
+		t.Error("FieldTypeDate.Compare.< Failed Test:", d2)
 	}
 
-	if d, _ := i.Compare("<=", e, a); d != true {
-		t.Error("FieldTypeInt64.Compare.<= Failed Test:", d)
+	if d2, _ := d.Compare("<=", e, a); d2 != true {
+		t.Error("FieldTypeDate.Compare.<= Failed Test:", d2)
 	}
 
-	if _, f := i.Compare("return error", a, b); f == nil {
-		t.Error("FieldTypeInt64.Compare.return Failed Test:", f)
+	if _, f := d.Compare("return error", a, b); f == nil {
+		t.Error("FieldTypeDate.Compare.return Failed Test:", f)
 	}
 }
 
 func TestCompareIndexed5(t *testing.T) {
 
 	if d, f, _ := i.CompareIndexed("==", int64(25)); d != "25" || f != "=" {
-		t.Error("FieldTypeInt64.CompareIndexed.== Failed Test:", d)
+		t.Error("FieldTypeDate.CompareIndexed.== Failed Test:", d)
 	}
 
 	if d, f, _ := i.CompareIndexed(">", int64(25)); d != "25" || f != "+" {
-		t.Error("FieldTypeInt64.CompareIndexed.> Failed Test:", d)
+		t.Error("FieldTypeDate.CompareIndexed.> Failed Test:", d)
 	}
 
 	if d, f, _ := i.CompareIndexed(">=", int64(25)); d != "25" || f != "+=" {
-		t.Error("FieldTypeInt64.CompareIndexed.>= Failed Test:", d)
+		t.Error("FieldTypeDate.CompareIndexed.>= Failed Test:", d)
 	}
 
 	if d, f, _ := i.CompareIndexed("<", int64(25)); d != "25" || f != "-" {
-		t.Error("FieldTypeInt64.CompareIndexed.< Failed Test:", d)
+		t.Error("FieldTypeDate.CompareIndexed.< Failed Test:", d)
 	}
 
 	if d, f, _ := i.CompareIndexed("<=", int64(25)); d != "25" || f != "-=" {
-		t.Error("FieldTypeInt64.CompareIndexed.<= Failed Test:", d)
+		t.Error("FieldTypeDate.CompareIndexed.<= Failed Test:", d)
 	}
 
 	if _, _, f := i.CompareIndexed("return error", int64(25)); f == nil {
-		t.Error("FieldTypeInt64.CompareIndexed.return Failed Test:", f)
+		t.Error("FieldTypeDate.CompareIndexed.return Failed Test:", f)
 	}
 }

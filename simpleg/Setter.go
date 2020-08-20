@@ -98,7 +98,7 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 		if ee != nil {
 			return i, append(e, ee)
 		}
-		m[KeyValueKey{Main: "ID"}] = ftUint64.Set(i)
+		m[KeyValueKey{Main: "ID"}], _ = ftUint64.Set(i)
 		s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "ID"}], s.DB.Options.DBName, typ, "ID", string(m[KeyValueKey{Main: "ID"}]), string(m[KeyValueKey{Main: "ID"}]))
 	}
 
@@ -122,8 +122,8 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 
 func (s *SetterFactory) link(typ string, o interface{}) []error {
 	s.DB.Lock.Lock()
-	ftUint64 := s.DB.FT["uint64"]
-	ot, ok := s.DB.LT[typ]
+	//ftUint64 := s.DB.FT["uint64"]
+	lt, ok := s.DB.LT[typ]
 	s.DB.Lock.Unlock()
 	var e []error
 	if !ok {
@@ -131,13 +131,13 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 		return e
 	}
 
-	v, e := ot.Validate(o, s.DB)
+	v, e := lt.Validate(o, s.DB)
 
 	if len(e) > 0 {
 		return e
 	}
 
-	m, e := ot.Set(v, s.DB)
+	m, e := lt.Set(v, s.DB)
 	if len(e) != 0 {
 		return e
 	}
@@ -159,24 +159,23 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 		return e
 	}
 
-	_, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, ot.Name, string(from), string(to), "FROM-TO"))
-
-	ib = m[KeyValueKey{Main: "ID"}]
-	delete(m, KeyValueKey{Main: "ID"})
-
-	for key, v := range m {
-		er = s.setObjectFieldIndex(tnx, typ, key.Main, v, ib)
-		if er == nil {
-			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(ib), key.GetFullString(s.DB.KV.D))
-		} else {
-			e = append(e, er)
+	_, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, lt.From, "ID", string(from), string(from)))
+	if err != nil {
+		e = append(e, err)
+	}
+	_, err = tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, lt.To, "ID", string(to), string(to)))
+	if err != nil {
+		e = append(e, err)
+	}
+	if len(e) < 1 {
+		delete(m, KeyValueKey{Main: "FROM"})
+		delete(m, KeyValueKey{Main: "TO"})
+		for key, v := range m {
+			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(from), string(to), key.GetFullString(s.DB.KV.D))
 		}
-
 	}
 
-	//_ = s.DB.KV.FlushWrites()
-
-	return i, e
+	return e
 }
 
 func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fieldName string, fieldNewValue interface{}) (uint64, []error) {
@@ -195,7 +194,12 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 	}
 
 	ok, fieldNewValueValidated, er := objectTypeField.Validate(fieldNewValue, s.DB)
-	fieldNewValueValidatedbytes := fieldType.Set(fieldNewValueValidated)
+	fieldNewValueValidatedbytes, err2 := fieldType.Set(fieldNewValueValidated)
+
+	if err2 != nil {
+		e = append(e, err2)
+		return objectId, e
+	}
 
 	if er != nil {
 		e = append(e, er)
@@ -207,7 +211,12 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 		tnx.Discard()
 		//s.DB.KV.DoneWriteTransaction()
 	}()
-	er = s.setObjectFieldIndex(tnx, objectTypeName, fieldName, fieldNewValueValidatedbytes, ftUint64.Set(objectId))
+	idRaw, err3 := ftUint64.Set(objectId)
+	if err3 != nil {
+		e = append(e, err3)
+		return objectId, e
+	}
+	er = s.setObjectFieldIndex(tnx, objectTypeName, fieldName, fieldNewValueValidatedbytes, idRaw)
 	if er == nil {
 		s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, objectTypeName, string(objectId), fieldName)
 	} else {
@@ -215,6 +224,68 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 	}
 
 	return objectId, e
+}
+
+func (s *SetterFactory) linkField(linkTypeName string, from uint64, to uint64, fieldName string, fieldNewValue interface{}) []error {
+	s.DB.Lock.Lock()
+	ftUint64 := s.DB.FT["uint64"]
+	linkType, ok := s.DB.LT[linkTypeName]
+	s.DB.Lock.Unlock()
+
+	var er error
+	var e []error
+	if !ok {
+		e = append(e, errors.New("link of type '"+linkTypeName+"' cannot be found in the database"))
+		return e
+	}
+	linkTypeField, ok1 := linkType.Fields[fieldName]
+	if !ok1 {
+		e = append(e, errors.New("linkField of type '"+linkTypeName+" | "+fieldName+"' cannot be found in the database"))
+		return e
+	}
+	fieldType, ok2 := s.DB.FT[linkTypeField.FieldType]
+	if !ok2 {
+		e = append(e, errors.New("field of type '"+linkTypeField.FieldType+"' cannot be found in the database"))
+		return e
+	}
+
+	ok, fieldNewValueValidated, er := linkTypeField.Validate(fieldNewValue, s.DB)
+	fieldNewValueValidatedbytes, err2 := fieldType.Set(fieldNewValueValidated)
+
+	if err2 != nil {
+		e = append(e, err2)
+	}
+
+	if er != nil {
+		e = append(e, er)
+	}
+	if len(e) > 0 {
+		return e
+	}
+	tnx := s.DB.KV.DB.NewTransaction(false)
+	defer func() {
+		tnx.Discard()
+		//s.DB.KV.DoneWriteTransaction()
+	}()
+	fromRaw, err3 := ftUint64.Set(from)
+	if err3 != nil {
+		e = append(e, err3)
+	}
+	toRaw, err4 := ftUint64.Set(to)
+	if err4 != nil {
+		e = append(e, err4)
+	}
+	_, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, linkType.From, "ID", string(fromRaw), string(fromRaw)))
+	if err != nil {
+		e = append(e, err)
+	}
+	_, err = tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, linkType.To, "ID", string(toRaw), string(toRaw)))
+	if err != nil {
+		e = append(e, err)
+	}
+
+	s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, linkTypeName, string(fromRaw), string(toRaw), fieldName)
+	return e
 }
 
 func (s *SetterFactory) Start(db *DB, numOfRuners int, inputChannelLength int) {

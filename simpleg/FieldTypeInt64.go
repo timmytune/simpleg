@@ -21,16 +21,19 @@ func (f *FieldTypeInt64) New() interface{} {
 	return r
 }
 
-func (f *FieldTypeInt64) Set(v interface{}) []byte {
-	d := v.(int64)
+func (f *FieldTypeInt64) Set(v interface{}) ([]byte, error) {
+	d, ok := v.(int64)
+	if !ok {
+		return nil, errors.New("Provided interface is not of type int64")
+	}
 	buf := make([]byte, binary.MaxVarintLen64)
 	binary.PutVarint(buf, d)
-	return buf
+	return buf, nil
 }
 
-func (f *FieldTypeInt64) Get(v []byte) interface{} {
+func (f *FieldTypeInt64) Get(v []byte) (interface{}, error) {
 	i, _ := binary.Varint(v)
-	return i
+	return i, nil
 }
 
 func (f *FieldTypeInt64) Compare(typ string, a []byte, b []byte) (bool, error) {

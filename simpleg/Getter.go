@@ -217,20 +217,30 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 					// just return an object list with the id requested
 					ret.IDs = make([][]byte, 0)
 					g.DB.Lock.Lock()
-					ret.IDs = append(ret.IDs, g.DB.FT["uint64"].Set(query.param))
+					id, err := g.DB.FT["uint64"].Set(query.param)
+					if err != nil {
+						errs = append(errs, err)
+					} else {
+						ret.IDs = append(ret.IDs, id)
+					}
+
 					g.DB.Lock.Unlock()
 					return &ret, errs
 				} else {
 					g.DB.Lock.Lock()
-					rawID := g.DB.FT["uint64"].Set(query.param)
+					rawID, er := g.DB.FT["uint64"].Set(query.param)
 					g.DB.Lock.Unlock()
-					obj, err := g.getKeysWithValue(txn, g.DB.Options.DBName, node.TypeName, string(rawID))
-					if len(err) > 0 {
-						errs = append(errs, err...)
-					}
-					if obj != nil {
-						obj[KeyValueKey{Main: "ID"}] = rawID
-						ret.Objects = append(ret.Objects, obj)
+					if er != nil {
+						errs = append(errs, er)
+					} else {
+						obj, err := g.getKeysWithValue(txn, g.DB.Options.DBName, node.TypeName, string(rawID))
+						if len(err) > 0 {
+							errs = append(errs, err...)
+						}
+						if obj != nil {
+							obj[KeyValueKey{Main: "ID"}] = rawID
+							ret.Objects = append(ret.Objects, obj)
+						}
 					}
 
 				}

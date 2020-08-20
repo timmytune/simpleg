@@ -19,13 +19,16 @@ func (f *FieldTypeString) New() interface{} {
 	return ""
 }
 
-func (f *FieldTypeString) Set(v interface{}) []byte {
-	d := v.(string)
-	return []byte(d)
+func (f *FieldTypeString) Set(v interface{}) ([]byte, error) {
+	d, ok := v.(string)
+	if !ok {
+		return nil, errors.New("Interface is not the type of string")
+	}
+	return []byte(d), nil
 }
 
-func (f *FieldTypeString) Get(v []byte) interface{} {
-	return string(v)
+func (f *FieldTypeString) Get(v []byte) (interface{}, error) {
+	return string(v), nil
 }
 
 func (f *FieldTypeString) Compare(typ string, a []byte, b []byte) (bool, error) {

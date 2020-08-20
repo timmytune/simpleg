@@ -13,15 +13,15 @@ func TestNew3(t *testing.T) {
 }
 
 func TestGet3(t *testing.T) {
-	b := i.Set(int64(1))
-	if e := i.Get(b); e.(int64) != 1 {
+	b, _ := i.Set(int64(1))
+	if e, _ := i.Get(b); e.(int64) != 1 {
 		t.Error("FieldTypeInt64.Get Failed Test")
 	}
 }
 
 func TestSet3(t *testing.T) {
-	b := i.Set(int64(1))
-	c := i.Set(int64(1))
+	b, _ := i.Set(int64(1))
+	c, _ := i.Set(int64(1))
 	if bytes.Compare(b, c) != 0 {
 		t.Error("FieldTypeInt64.Set Failed Test got:", c)
 	}
@@ -29,10 +29,10 @@ func TestSet3(t *testing.T) {
 
 func TestCompare3(t *testing.T) {
 	// should be able to add a key and value
-	a := i.Set(int64(10))
-	b := i.Set(int64(10))
-	c := i.Set(int64(11))
-	e := i.Set(int64(9))
+	a, _ := i.Set(int64(10))
+	b, _ := i.Set(int64(10))
+	c, _ := i.Set(int64(11))
+	e, _ := i.Set(int64(9))
 
 	if d, _ := i.Compare("==", a, b); d != true {
 		t.Error("FieldTypeInt64.Compare.== Failed Test:", d)
