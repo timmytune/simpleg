@@ -3,7 +3,6 @@ package simpleg
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"testing"
@@ -32,6 +31,7 @@ type Friend struct {
 	FROM     uint64
 	TO       uint64
 	accepted bool
+	created  time.Time
 }
 
 func GetUserOption() ObjectTypeOptions {
@@ -218,7 +218,7 @@ func GetFriendLinkOption() LinkTypeOptions {
 	fl.From = "User"
 	fl.To = "User"
 	fl.New = func(db *DB) interface{} {
-		return Friend{db: db}
+		return Friend{db: db, created: time.Now()}
 	}
 	fl.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
 		e := make([]error, 0)
@@ -241,19 +241,42 @@ func GetFriendLinkOption() LinkTypeOptions {
 		defer db.Lock.Unlock()
 		friend := Friend{db: db}
 		if f, ok := m[KeyValueKey{Main: "FROM"}]; ok {
-			friend.FROM = db.FT["uint64"].Get(f).(uint64)
+			v, err := db.FT["uint64"].Get(f)
+			if err != nil {
+				e = append(e, err)
+			} else {
+				friend.FROM = v.(uint64)
+			}
 		} else {
 			e = append(e, errors.New("The Data from the DB has no FROM field set"))
 			return nil, e
 		}
 		if f, ok := m[KeyValueKey{Main: "TO"}]; ok {
-			friend.TO = db.FT["uint64"].Get(f).(uint64)
+			v, err := db.FT["uint64"].Get(f)
+			if err != nil {
+				e = append(e, err)
+			} else {
+				friend.TO = v.(uint64)
+			}
 		} else {
 			e = append(e, errors.New("The Data from the DB has no TO field set"))
 			return nil, e
 		}
 		if f, ok := m[KeyValueKey{Main: "accepted"}]; ok {
-			friend.accepted = db.FT["bool"].Get(f).(bool)
+			v, err := db.FT["bool"].Get(f)
+			if err != nil {
+				e = append(e, err)
+			} else {
+				friend.accepted = v.(bool)
+			}
+		}
+		if f, ok := m[KeyValueKey{Main: "created"}]; ok {
+			v, err := db.FT["date"].Get(f)
+			if err != nil {
+				e = append(e, err)
+			} else {
+				friend.created = v.(time.Time)
+			}
 		}
 		return u, e
 	}
@@ -283,16 +306,17 @@ func GetFriendLinkOption() LinkTypeOptions {
 		db.Lock.Lock()
 		defer db.Lock.Unlock()
 		if d.FROM > 0 {
-			u[KeyValueKey{Main: "FROM"}] = db.FT["uint64"].Set(d.FROM)
+			u[KeyValueKey{Main: "FROM"}], _ = db.FT["uint64"].Set(d.FROM)
 		} else {
 			e = append(e, errors.New("From Field not provided"))
 		}
 		if d.TO > 0 {
-			u[KeyValueKey{Main: "TO"}] = db.FT["uint64"].Set(d.TO)
+			u[KeyValueKey{Main: "TO"}], _ = db.FT["uint64"].Set(d.TO)
 		} else {
 			e = append(e, errors.New("TO Field not provided"))
 		}
-		u[KeyValueKey{Main: "accepted"}] = db.FT["bool"].Set(d.accepted)
+		u[KeyValueKey{Main: "accepted"}], _ = db.FT["bool"].Set(d.accepted)
+		u[KeyValueKey{Main: "created"}], _ = db.FT["date"].Set(d.created)
 		return
 	}
 	fl.Validate = func(i interface{}, db *DB) (interface{}, []error) {
@@ -317,6 +341,7 @@ func GetFriendLinkOption() LinkTypeOptions {
 	//fv := FieldValidation{}
 	fl.Fields = make(map[string]FieldOptions)
 	fl.Fields["accepted"] = FieldOptions{FieldType: "bool"}
+	fl.Fields["created"] = FieldOptions{FieldType: "date"}
 
 	return fl
 }
@@ -371,7 +396,7 @@ func TestSetObject(t *testing.T) {
 	//data, _ := db.KV.Stream([]string{"simpleg"}, nil)
 	//log.Print("Data in the database", data)
 	elapsed := time.Since(start)
-	log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
+	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
 
 }
 
@@ -414,7 +439,7 @@ func TestSetters(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	log.Printf("-------------------------------------------- Test Setter took %s", elapsed)
+	Log.Printf("-------------------------------------------- Test Setter took %s", elapsed)
 	time.Sleep(1 * time.Second)
 	//data, _ := db.KV.Stream([]string{"simpleg"}, nil) //, "^", "User", "^", string(ret.ID)
 	//log.Print("Data in the database", data)
@@ -432,12 +457,33 @@ func TestGetObject(t *testing.T) {
 			t.Error("simpleg.Set Failed Test get user:", ret)
 		}
 		u, _ := ret.Data.(User)
-		log.Print("-------------------------------------------- Test Get Object", u)
+		Log.Print("-------------------------------------------- Test Get Object", u)
 
 		//}()
 	}
 	//wg.Wait()
 	elapsed := time.Since(start)
-	log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
+	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
+
+}
+
+func TestSetLink(t *testing.T) {
+	var wg sync.WaitGroup
+	start := time.Now()
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ret := db.Get("link.new", "Friend")
+			if len(ret.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test get Friend:", ret)
+			}
+
+			Log.Print("Get Friend _________________________-", ret.Data)
+		}()
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
 
 }

@@ -20,8 +20,7 @@ var (
 	// DefaultIteratorOptions is the Badger default operation
 	DefaultIteratorOptions = badger.DefaultIteratorOptions
 	WriterInput            chan WriterData
-
-	lock = sync.Mutex{}
+	lock                   = sync.Mutex{}
 )
 
 func BytesToInt(b []byte) (int, error) {

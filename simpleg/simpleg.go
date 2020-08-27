@@ -7,12 +7,11 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	kv "ytech.com.ng/projects/jists/keyvalue"
 )
 
 var (
-	KV *kv.KV
+	Log zerolog.Logger
 )
 
 type FieldType interface {
@@ -99,15 +98,16 @@ type DB struct {
 }
 
 func (db *DB) Init(o Options) error {
-	file, err := os.OpenFile("logs.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	file, err := os.OpenFile("logs.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
-	os.Stderr = file
+	Log = zerolog.New(file).With().Timestamp().Logger()
+	//os.Stderr = file
 	//log.SetOutput(file)
-	log.Info().Msg("Database initiating")
+	Log.Info().Msg("Database initiating")
 
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	//zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	db.Lock = sync.Mutex{}
 	db.Options = o
 	db.FT = make(map[string]FieldType)
@@ -122,7 +122,7 @@ func (db *DB) Init(o Options) error {
 	db.AddFieldType(FieldTypeOptions{Name: "uint64", AllowIndexing: true}, &FieldTypeUint64{})
 	db.AddFieldType(FieldTypeOptions{Name: "date", AllowIndexing: true}, &FieldTypeDate{})
 
-	log.Info().Msg("Database initiated")
+	Log.Info().Msg("Database initiated")
 	return nil
 }
 func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
@@ -153,9 +153,25 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	s = <-ch
 	return
 }
-func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
+func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 	q := Query{DB: db}
-	var ret GetterRet
+
+	defer func() {
+		r := recover()
+		if r != nil {
+			if ret.Errors == nil {
+				ret.Errors = make([]error, 0)
+			}
+			switch x := r.(type) {
+			case string:
+				ret.Errors = append(ret.Errors, errors.New(x))
+			case error:
+				ret.Errors = append(ret.Errors, x)
+			default:
+				ret.Errors = append(ret.Errors, errors.New("Unknown error was thrown"))
+			}
+		}
+	}()
 
 	switch ins {
 	case "object.single":
@@ -166,11 +182,14 @@ func (db *DB) Get(ins string, d ...interface{}) *GetterRet {
 	case "object.new":
 		q.Do("object.new", d[0].(string))
 		ret = q.Return("skip")
+	case "link.new":
+		q.Do("link.new", d[0].(string))
+		ret = q.Return("skip")
 	default:
 		ret.Errors = make([]error, 0)
 		ret.Errors = append(ret.Errors, errors.New("Invalid Instruction"))
 	}
-	return &ret
+	return
 }
 
 func (db *DB) Query() Query {
@@ -178,7 +197,7 @@ func (db *DB) Query() Query {
 }
 
 func (db *DB) Start() error {
-	log.Info().Msg("Database starting...")
+	Log.Info().Msg("Database starting...")
 	var err error
 	kd := kv.GetDefaultKVOptions()
 	kd.D = db.Options.DBDelimiter
@@ -189,7 +208,7 @@ func (db *DB) Start() error {
 	db.KV, err = kv.Open(kd, bd)
 	db.Setter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
 	db.Getter.Start(db, db.Options.GetterGoroutineCount, db.Options.GetterChannelLength, db.Options.transactionValidityDuration)
-	log.Info().Msg("Database started")
+	Log.Info().Msg("Database started")
 	return err
 
 }

@@ -218,7 +218,7 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 	}
 	er = s.setObjectFieldIndex(tnx, objectTypeName, fieldName, fieldNewValueValidatedbytes, idRaw)
 	if er == nil {
-		s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, objectTypeName, string(objectId), fieldName)
+		s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, objectTypeName, string(idRaw), fieldName)
 	} else {
 		e = append(e, er)
 	}
@@ -339,6 +339,14 @@ func (s *SetterFactory) Run() {
 		case "save.object.field":
 			id, err := s.objectField(job.Data[0].(string), job.Data[1].(uint64), job.Data[2].(string), job.Data[3])
 			er.ID = id
+			er.Errors = err
+			if job.Ret != nil {
+				job.Ret <- er
+				close(job.Ret)
+			}
+
+		case "save.link":
+			err := s.link(job.Data[0].(string), job.Data[1])
 			er.Errors = err
 			if job.Ret != nil {
 				job.Ret <- er

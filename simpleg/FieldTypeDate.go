@@ -24,7 +24,7 @@ func (f *FieldTypeDate) Set(v interface{}) ([]byte, error) {
 	if !ok {
 		return nil, errors.New("Provided interface is not of type Time")
 	}
-	t, err := d.MarshalJSON()
+	t, err := d.MarshalText()
 	return t, err
 }
 

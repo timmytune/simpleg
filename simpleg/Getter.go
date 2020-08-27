@@ -2,7 +2,6 @@ package simpleg
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -268,7 +267,6 @@ func (g *GetterFactory) Run() {
 	defer func() {
 		r := recover()
 		if r != nil {
-			fmt.Println("Recovered in GetterFactory.Run ", r)
 
 			if ret.Errors == nil {
 				ret.Errors = make([]error, 0)
@@ -315,6 +313,8 @@ func (g *GetterFactory) Run() {
 				GetterNewObject(g, txn, &data, &job, val.Params, &ret)
 			case "object":
 				GetterObjects(g, txn, &data, &job, val.Params, &ret)
+			case "link.new":
+				GetterNewLink(g, txn, &data, &job, val.Params, &ret)
 			default:
 				ret.Errors = append(ret.Errors, errors.New("Invalid Istruction in GetterFactory: "+val.Action))
 			}
@@ -401,5 +401,20 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 			}
 		}
 	}
+	q.Ret <- *ret
+}
+
+//GetterNewLink ..
+//action: 'link.new'
+//params [0] Link name (String)
+//return New link
+func GetterNewLink(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+	g.DB.Lock.Lock()
+	lt, ok := g.DB.LT[qData[0].(string)]
+	g.DB.Lock.Unlock()
+	if !ok {
+		ret.Errors = append(ret.Errors, ErrObjectTypeNotFound)
+	}
+	ret.Data = lt.New(g.DB)
 	q.Ret <- *ret
 }

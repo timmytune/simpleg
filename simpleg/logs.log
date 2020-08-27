@@ -1,0 +1,105 @@
+{"level":"info","time":"2020-08-26T16:24:05+01:00","message":"Database initiating"}
+{"level":"info","time":1598455445,"message":"Database initiated"}
+{"level":"info","time":1598455445,"message":"Database starting..."}
+{"level":"info","time":1598455446,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:37:29+01:00","message":"Database initiating"}
+{"level":"info","time":1598456249,"message":"Database initiated"}
+{"level":"info","time":1598456249,"message":"Database starting..."}
+{"level":"info","time":1598456249,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:39:07+01:00","message":"Database initiating"}
+{"level":"info","time":1598456347,"message":"Database initiated"}
+{"level":"info","time":1598456347,"message":"Database starting..."}
+{"level":"info","time":1598456348,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:46:45+01:00","message":"Database initiating"}
+{"level":"info","time":1598456805,"message":"Database initiated"}
+{"level":"info","time":1598456805,"message":"Database starting..."}
+{"level":"info","time":1598456805,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:48:29+01:00","message":"Database initiating"}
+{"level":"info","time":1598456909,"message":"Database initiated"}
+{"level":"info","time":1598456909,"message":"Database starting..."}
+{"level":"info","time":1598456909,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:51:25+01:00","message":"Database initiating"}
+{"level":"info","time":1598457085,"message":"Database initiated"}
+{"level":"info","time":1598457085,"message":"Database starting..."}
+{"level":"info","time":1598457085,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:53:01+01:00","message":"Database initiating"}
+{"level":"info","time":1598457181,"message":"Database initiated"}
+{"level":"info","time":1598457181,"message":"Database starting..."}
+{"level":"info","time":1598457181,"message":"Database started"}
+{"level":"info","time":"2020-08-26T16:56:43+01:00","message":"Database initiating"}
+{"level":"info","time":"2020-08-26T16:56:43+01:00","message":"Database initiated"}
+{"level":"info","time":"2020-08-26T16:56:43+01:00","message":"Database starting..."}
+{"level":"info","time":"2020-08-26T16:56:43+01:00","message":"Database started"}
+{"level":"debug","time":"2020-08-26T16:56:43+01:00","message":"-------------------------------------------- Test Set Object took 6.9809ms"}
+{"level":"debug","time":"2020-08-26T16:56:43+01:00","message":"-------------------------------------------- Test Setter took 4.9881ms"}
+{"level":"debug","time":"2020-08-26T16:56:44+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 1 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T16:56:44+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 2 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T16:56:44+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 3 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T16:56:44+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 4 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T16:56:44+01:00","message":"-------------------------------------------- Test Set Object took 82.6561ms"}
+{"level":"info","time":"2020-08-26T17:50:58+01:00","message":"Database initiating"}
+{"level":"info","time":"2020-08-26T17:50:58+01:00","message":"Database initiated"}
+{"level":"info","time":"2020-08-26T17:50:58+01:00","message":"Database starting..."}
+{"level":"info","time":"2020-08-26T17:50:58+01:00","message":"Database started"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"-------------------------------------------- Test Set Object took 10.9692ms"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"Get Friend _________________________-{0xc00009d930 0 0 false}"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"-------------------------------------------- Test Set Object took 10.9702ms"}
+{"level":"debug","time":"2020-08-26T17:50:58+01:00","message":"-------------------------------------------- Test Setter took 2.7809ms"}
+{"level":"debug","time":"2020-08-26T17:50:59+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 1 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T17:50:59+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 2 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T17:50:59+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 3 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T17:50:59+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d930 4 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T17:50:59+01:00","message":"-------------------------------------------- Test Set Object took 70.6722ms"}
+{"level":"info","time":"2020-08-26T19:22:11+01:00","message":"Database initiating"}
+{"level":"info","time":"2020-08-26T19:22:11+01:00","message":"Database initiated"}
+{"level":"info","time":"2020-08-26T19:22:11+01:00","message":"Database starting..."}
+{"level":"info","time":"2020-08-26T19:22:11+01:00","message":"Database started"}
+{"level":"debug","time":"2020-08-26T19:22:11+01:00","message":"-------------------------------------------- Test Set Object took 6.9818ms"}
+{"level":"debug","time":"2020-08-26T19:22:11+01:00","message":"-------------------------------------------- Test Setter took 1.9937ms"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"-------------------------------------------- Test Get Object{0xc00009b5f0 1 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"-------------------------------------------- Test Get Object{0xc00009b5f0 2 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"-------------------------------------------- Test Get Object{0xc00009b5f0 3 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"-------------------------------------------- Test Get Object{0xc00009b5f0 4 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"-------------------------------------------- Test Set Object took 77.6533ms"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"Get Friend _________________________-{0xc00009b5f0 0 0 false {0 0 <nil>}}"}
+{"level":"debug","time":"2020-08-26T19:22:12+01:00","message":"-------------------------------------------- Test Set Object took 1.9947ms"}
+{"level":"info","time":"2020-08-26T19:31:26+01:00","message":"Database initiating"}
+{"level":"info","time":"2020-08-26T19:31:26+01:00","message":"Database initiated"}
+{"level":"info","time":"2020-08-26T19:31:26+01:00","message":"Database starting..."}
+{"level":"info","time":"2020-08-26T19:31:26+01:00","message":"Database started"}
+{"level":"debug","time":"2020-08-26T19:31:26+01:00","message":"-------------------------------------------- Test Set Object took 8.9764ms"}
+{"level":"debug","time":"2020-08-26T19:31:26+01:00","message":"-------------------------------------------- Test Setter took 1.9942ms"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d790 1 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d790 2 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d790 3 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"-------------------------------------------- Test Get Object{0xc00009d790 4 yinka adedoyin timmytune002@gmail.com true 19}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"-------------------------------------------- Test Set Object took 63.7067ms"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383167433996 1305676501 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383167433996 1305676501 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383167433996 1305676501 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"Get Friend _________________________-{0xc00009d790 0 0 false {13819797383168433396 1306675901 0x11c9e40}}"}
+{"level":"debug","time":"2020-08-26T19:31:27+01:00","message":"-------------------------------------------- Test Set Object took 6.0161ms"}

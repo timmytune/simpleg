@@ -37,9 +37,9 @@ func TestCompare5(t *testing.T) {
 	// should be able to add a key and value
 	t2 := time.Now()
 	a, _ := d.Set(t2)
-	b, _ := i.Set(t2)
-	c, _ := d.Set(time.Now())
-	e, _ := d.Set(time.Now())
+	b, _ := d.Set(t2)
+	c, _ := d.Set(time.Unix(int64(1598456600), int64(0)))
+	e, _ := d.Set(time.Unix(int64(1598456699), int64(0)))
 
 	if d2, _ := d.Compare("==", a, b); d2 != true {
 		t.Error("FieldTypeDate.Compare.== Failed Test:", d2)
@@ -53,15 +53,15 @@ func TestCompare5(t *testing.T) {
 		t.Error("FieldTypeDate.Compare.!= Failed Test:", d2)
 	}
 
-	if d2, _ := d.Compare(">", c, a); d2 != true {
-		t.Error("FieldTypeDate.Compare.> Failed Test:", d2)
+	if d2, _ := d.Compare(">", a, c); d2 != true {
+		t.Error("FieldTypeDate.Compare.> Failed Test:", c, a, d2)
 	}
 
-	if d2, _ := d.Compare(">=", a, c); d2 == true {
+	if d2, _ := d.Compare(">=", a, c); d2 != true {
 		t.Error("FieldTypeDate.Compare.>= Failed Test:", d2)
 	}
 
-	if d2, _ := d.Compare("<", a, c); d2 != true {
+	if d2, _ := d.Compare("<", c, a); d2 != true {
 		t.Error("FieldTypeDate.Compare.< Failed Test:", d2)
 	}
 
