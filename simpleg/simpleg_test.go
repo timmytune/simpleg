@@ -30,8 +30,8 @@ type Friend struct {
 	db       *DB
 	FROM     uint64
 	TO       uint64
+	CREATED  time.Time
 	accepted bool
-	created  time.Time
 }
 
 func GetUserOption() ObjectTypeOptions {
@@ -214,11 +214,12 @@ func GetUserOption() ObjectTypeOptions {
 func GetFriendLinkOption() LinkTypeOptions {
 	fl := LinkTypeOptions{}
 	fl.OppositeSame = true
+	fl.Multiple = false
 	fl.Name = "Friend"
 	fl.From = "User"
 	fl.To = "User"
 	fl.New = func(db *DB) interface{} {
-		return Friend{db: db, created: time.Now()}
+		return Friend{db: db, CREATED: time.Now()}
 	}
 	fl.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
 		e := make([]error, 0)
@@ -270,12 +271,12 @@ func GetFriendLinkOption() LinkTypeOptions {
 				friend.accepted = v.(bool)
 			}
 		}
-		if f, ok := m[KeyValueKey{Main: "created"}]; ok {
+		if f, ok := m[KeyValueKey{Main: "CREATED"}]; ok {
 			v, err := db.FT["date"].Get(f)
 			if err != nil {
 				e = append(e, err)
 			} else {
-				friend.created = v.(time.Time)
+				friend.CREATED = v.(time.Time)
 			}
 		}
 		return u, e
@@ -316,7 +317,7 @@ func GetFriendLinkOption() LinkTypeOptions {
 			e = append(e, errors.New("TO Field not provided"))
 		}
 		u[KeyValueKey{Main: "accepted"}], _ = db.FT["bool"].Set(d.accepted)
-		u[KeyValueKey{Main: "created"}], _ = db.FT["date"].Set(d.created)
+		u[KeyValueKey{Main: "CREATED"}], _ = db.FT["date"].Set(d.CREATED)
 		return
 	}
 	fl.Validate = func(i interface{}, db *DB) (interface{}, []error) {
@@ -341,7 +342,7 @@ func GetFriendLinkOption() LinkTypeOptions {
 	//fv := FieldValidation{}
 	fl.Fields = make(map[string]FieldOptions)
 	fl.Fields["accepted"] = FieldOptions{FieldType: "bool"}
-	fl.Fields["created"] = FieldOptions{FieldType: "date"}
+	fl.Fields["CREATED"] = FieldOptions{FieldType: "date"}
 
 	return fl
 }

@@ -46,6 +46,7 @@ type ObjectTypeOptions struct {
 type LinkTypeOptions struct {
 	Name         string
 	OppositeSame bool
+	Multiple     bool
 	From         string
 	To           string
 	Fields       map[string]FieldOptions

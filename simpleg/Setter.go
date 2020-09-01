@@ -167,12 +167,25 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 	if err != nil {
 		e = append(e, err)
 	}
+	data, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, typ, string(to), string(from), "CREATED"))
+	// if opposites are the same just use prexisting link
+	if data != nil && lt.OppositeSame {
+		h := to
+		to = from
+		from = h
+	}
+	if data != nil && !lt.Multiple {
+		h := to
+		to = from
+		from = h
+	}
 	if len(e) < 1 {
 		delete(m, KeyValueKey{Main: "FROM"})
 		delete(m, KeyValueKey{Main: "TO"})
 		for key, v := range m {
 			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(from), string(to), key.GetFullString(s.DB.KV.D))
 		}
+		s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "CREATED"}], s.DB.Options.DBName, typ+"-", string(from), string(to), "CREATED")
 	}
 
 	return e
