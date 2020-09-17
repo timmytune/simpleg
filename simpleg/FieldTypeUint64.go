@@ -3,7 +3,6 @@ package simpleg
 import (
 	"encoding/binary"
 	"errors"
-	"strconv"
 )
 
 type FieldTypeUint64 struct {
@@ -63,18 +62,20 @@ func (f *FieldTypeUint64) Compare(typ string, a []byte, b []byte) (bool, error) 
 
 func (f *FieldTypeUint64) CompareIndexed(typ string, a interface{}) (string, string, error) {
 	var err error
-	s := strconv.FormatUint(a.(uint64), 10)
+	g, err := f.Set(a)
+	if err != nil {
+		return "", "", err
+	}
+	s := string(g)
 	switch typ {
 	case "==":
-		return s, "=", err
+		return s, "==", err
 	case ">":
-		return s, "+", err
+		return s, ">", err
 	case ">=":
-		return s, "+=", err
+		return s, ">=", err
 	case "<":
-		return s, "-", err
-	case "<=":
-		return s, "-=", err
+		return s, "<", err
 	default:
 		return "", "", errors.New("fieldtype uint64 does not support this comparison operator for indexed field")
 	}

@@ -2,8 +2,8 @@ package simpleg
 
 import (
 	"errors"
-	"fmt"
 	"os"
+	"runtime/debug"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -95,11 +95,11 @@ type DB struct {
 	LT      map[string]LinkTypeOptions
 	Setter  SetterFactory
 	Getter  GetterFactory
-	Lock    sync.Mutex
+	sync.RWMutex
 }
 
 func (db *DB) Init(o Options) error {
-	file, err := os.OpenFile("logs.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	file, err := os.OpenFile("simpleg.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
@@ -107,9 +107,8 @@ func (db *DB) Init(o Options) error {
 	//os.Stderr = file
 	//log.SetOutput(file)
 	Log.Info().Msg("Database initiating")
-
 	//zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	db.Lock = sync.Mutex{}
+	//db.Lock = sync.Mutex{}
 	db.Options = o
 	db.FT = make(map[string]FieldType)
 	db.FTO = make(map[string]FieldTypeOptions)
@@ -130,7 +129,7 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			fmt.Println("Recovered in Setter.Run ", r)
+			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in DB.Set ")
 			s = SetterRet{}
 			if s.Errors == nil {
 				s.Errors = make([]error, 0)
@@ -156,10 +155,10 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 }
 func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 	q := Query{DB: db}
-
 	defer func() {
 		r := recover()
 		if r != nil {
+			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in DB.Get ")
 			if ret.Errors == nil {
 				ret.Errors = make([]error, 0)
 			}
@@ -173,7 +172,6 @@ func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 			}
 		}
 	}()
-
 	switch ins {
 	case "object.single":
 		n := NodeQuery{}
@@ -186,6 +184,11 @@ func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 	case "link.new":
 		q.Do("link.new", d[0].(string))
 		ret = q.Return("skip")
+	case "link.single":
+		n := NodeQuery{}
+		n.Name("da").Link(d[0].(string), d[1].(string)).Q("FROM", "==", d[2]).Q("TO", "==", d[3])
+		q.Do("link", n)
+		ret = q.Return("single", "da", 0)
 	default:
 		ret.Errors = make([]error, 0)
 		ret.Errors = append(ret.Errors, errors.New("Invalid Instruction"))

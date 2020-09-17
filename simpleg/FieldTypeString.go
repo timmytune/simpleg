@@ -45,6 +45,8 @@ func (f *FieldTypeString) Compare(typ string, a []byte, b []byte) (bool, error) 
 		return bytes.EqualFold(a, b), err
 	case "HasSuffix":
 		return bytes.HasSuffix(a, b), err
+	case "prefix":
+		return bytes.HasPrefix(a, b), err
 	default:
 		return false, errors.New("fieldtype string does not support the comparison operator " + typ)
 	}
@@ -55,10 +57,8 @@ func (f *FieldTypeString) CompareIndexed(typ string, a interface{}) (string, str
 	var err error
 	b, _ := a.(string)
 	switch typ {
-	case "==":
-		return b, "", err
 	case "prefix":
-		return b, "", err
+		return b, "==", err
 	default:
 		return "", "", errors.New("fieldtype string does not support this comparison operator for indexed field")
 	}

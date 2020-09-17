@@ -82,15 +82,15 @@ func (f *FieldTypeDate) CompareIndexed(typ string, a interface{}) (string, strin
 	s := string(b)
 	switch typ {
 	case "==":
-		return s, "=", err
+		return s, "==", err
 	case ">":
-		return s, "+", err
-	case ">=":
-		return s, "+=", err
-	case "<":
 		return s, "-", err
-	case "<=":
+	case ">=":
 		return s, "-=", err
+	case "<":
+		return s, "+", err
+	case "<=":
+		return s, "+=", err
 	default:
 		return "", "", errors.New("fieldtype date does not support this comparison operator for indexed field")
 	}

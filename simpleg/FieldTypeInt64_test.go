@@ -68,25 +68,21 @@ func TestCompare3(t *testing.T) {
 }
 
 func TestCompareIndexed3(t *testing.T) {
-
-	if d, f, _ := i.CompareIndexed("==", int64(25)); d != "25" || f != "=" {
+	g, _ := i.Set(int64(25))
+	if d, f, _ := i.CompareIndexed("==", int64(25)); d != string(g) || f != "==" {
 		t.Error("FieldTypeInt64.CompareIndexed.== Failed Test:", d)
 	}
 
-	if d, f, _ := i.CompareIndexed(">", int64(25)); d != "25" || f != "+" {
+	if d, f, _ := i.CompareIndexed(">", int64(25)); d != string(g) || f != ">" {
 		t.Error("FieldTypeInt64.CompareIndexed.> Failed Test:", d)
 	}
 
-	if d, f, _ := i.CompareIndexed(">=", int64(25)); d != "25" || f != "+=" {
+	if d, f, _ := i.CompareIndexed(">=", int64(25)); d != string(g) || f != ">=" {
 		t.Error("FieldTypeInt64.CompareIndexed.>= Failed Test:", d)
 	}
 
-	if d, f, _ := i.CompareIndexed("<", int64(25)); d != "25" || f != "-" {
+	if d, f, _ := i.CompareIndexed("<", int64(25)); d != string(g) || f != "<" {
 		t.Error("FieldTypeInt64.CompareIndexed.< Failed Test:", d)
-	}
-
-	if d, f, _ := i.CompareIndexed("<=", int64(25)); d != "25" || f != "-=" {
-		t.Error("FieldTypeInt64.CompareIndexed.<= Failed Test:", d)
 	}
 
 	if _, _, f := i.CompareIndexed("return error", int64(25)); f == nil {

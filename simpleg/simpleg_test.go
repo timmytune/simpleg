@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	debug "runtime/debug"
 	"sync"
 	"testing"
 	"time"
@@ -57,8 +58,8 @@ func GetUserOption() ObjectTypeOptions {
 				}
 			}
 		}()
-		db.Lock.Lock()
-		defer db.Lock.Unlock()
+		db.RLock()
+		defer db.RUnlock()
 		u := User{db: db}
 
 		if id, ok := m[KeyValueKey{Main: "ID"}]; ok {
@@ -133,8 +134,8 @@ func GetUserOption() ObjectTypeOptions {
 			}
 		}()
 		d := i.(User)
-		db.Lock.Lock()
-		defer db.Lock.Unlock()
+		db.RLock()
+		defer db.RUnlock()
 		if d.ID > 0 {
 			u[KeyValueKey{Main: "ID"}], _ = db.FT["uint64"].Set(d.ID)
 		}
@@ -170,8 +171,8 @@ func GetUserOption() ObjectTypeOptions {
 				}
 			}
 		}()
-		db.Lock.Lock()
-		defer db.Lock.Unlock()
+		db.RLock()
+		defer db.RUnlock()
 		d := i.(User)
 		x, y, z := db.OT["User"].Fields["firstName"].Validate(d.firstName, db)
 		if !x {
@@ -206,7 +207,7 @@ func GetUserOption() ObjectTypeOptions {
 	uo.Fields["lastName"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.String("lastName", 3, 20, true, true, false)}
 	uo.Fields["email"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.Email("email", true)}
 	uo.Fields["active"] = FieldOptions{Indexed: false, FieldType: "bool", Validate: nil}
-	uo.Fields["age"] = FieldOptions{Indexed: true, FieldType: "int64", Validate: fv.Int64("age", 18, -1)}
+	uo.Fields["age"] = FieldOptions{Indexed: true, FieldType: "int64", Validate: fv.Int64("age", 10, -1)}
 
 	return uo
 }
@@ -238,8 +239,8 @@ func GetFriendLinkOption() LinkTypeOptions {
 				}
 			}
 		}()
-		db.Lock.Lock()
-		defer db.Lock.Unlock()
+		db.RLock()
+		defer db.RUnlock()
 		friend := Friend{db: db}
 		if f, ok := m[KeyValueKey{Main: "FROM"}]; ok {
 			v, err := db.FT["uint64"].Get(f)
@@ -304,8 +305,8 @@ func GetFriendLinkOption() LinkTypeOptions {
 			e = append(e, errors.New("The Provided struct is not of type Friend"))
 			return nil, e
 		}
-		db.Lock.Lock()
-		defer db.Lock.Unlock()
+		db.RLock()
+		defer db.RUnlock()
 		if d.FROM > 0 {
 			u[KeyValueKey{Main: "FROM"}], _ = db.FT["uint64"].Set(d.FROM)
 		} else {
@@ -394,8 +395,6 @@ func TestSetObject(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	//data, _ := db.KV.Stream([]string{"simpleg"}, nil)
-	//log.Print("Data in the database", data)
 	elapsed := time.Since(start)
 	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
 
@@ -412,7 +411,7 @@ func TestSetters(t *testing.T) {
 	u.firstName = "Femi"
 	u.lastName = "Adedoyin"
 	u.email = "timmytune001@gmail.com"
-	u.age = int64(31)
+	u.age = int64(12)
 	ret := db.Set("save.object", "User", u)
 	if len(ret.Errors) != 0 {
 		t.Error("simpleg.Set Failed Test got:", ret)
@@ -468,7 +467,27 @@ func TestGetObject(t *testing.T) {
 
 }
 
+func TestGetObjects(t *testing.T) {
+	//var wg sync.WaitGroup
+	//time.Sleep(3 * time.Second)
+	start := time.Now()
+	q := db.Query()
+	n := NodeQuery{}
+	n.Name("da").Object("User").Q("age", ">=", int64(12)).Order("ID", "dsc")
+	q.Do("object", n)
+	ret := q.Return("array", "da")
+	if len(ret.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test get users:", ret.Errors)
+	}
+	//u, _ := ret.Data.([]User)
+	Log.Print("-------------------------------------------- Test Get Objects", ret)
+	//wg.Wait()
+	elapsed := time.Since(start)
+	Log.Printf("-------------------------------------------- Test Set Objects took %s", elapsed)
+}
+
 func TestSetLink(t *testing.T) {
+	time.Sleep(1 * time.Second)
 	var wg sync.WaitGroup
 	start := time.Now()
 	for i := 0; i < 10; i++ {
@@ -479,8 +498,23 @@ func TestSetLink(t *testing.T) {
 			if len(ret.Errors) > 0 {
 				t.Error("simpleg.Set Failed Test get Friend:", ret)
 			}
-
-			Log.Print("Get Friend _________________________-", ret.Data)
+			//Log.Print("Get Friend _________________________-", ret.Data)
+			f, ok := ret.Data.(Friend)
+			if !ok {
+				t.Error("simpleg.SetLink Failed Test get user:", ret)
+			}
+			f.FROM = uint64(1)
+			f.TO = uint64(2)
+			f.accepted = true
+			r := db.Set("save.link", "Friend", f)
+			if len(r.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test set Friend:", r)
+			}
+			r = db.Set("save.link.field", "Friend", uint64(1), uint64(2), "accepted", false)
+			if len(r.Errors) > 0 {
+				Log.Printf("-------------------------------------------- Test Set Object took %s", debug.Stack())
+				t.Error("simpleg.Set Failed Test set Friend:", r)
+			}
 		}()
 	}
 	wg.Wait()

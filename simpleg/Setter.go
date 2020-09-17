@@ -3,7 +3,7 @@ package simpleg
 import (
 	"bytes"
 	"errors"
-	"fmt"
+	"runtime/debug"
 
 	badger "github.com/dgraph-io/badger/v2"
 )
@@ -28,10 +28,10 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 
 	var err error
 	//check if indexing is allowed if not skip
-	s.DB.Lock.Lock()
+	s.DB.RLock()
 	fieldIndexed := s.DB.OT[objectType].Fields[fieldName].Indexed
 	allowIndexing := s.DB.FTO[s.DB.OT[objectType].Fields[fieldName].FieldType].AllowIndexing
-	s.DB.Lock.Unlock()
+	s.DB.RUnlock()
 	if fieldIndexed == true && allowIndexing == true {
 		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, string(id), fieldName))
 		//If item does not exist in the db just create the new index only
@@ -62,10 +62,10 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 }
 
 func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
-	s.DB.Lock.Lock()
+	s.DB.RLock()
 	ftUint64 := s.DB.FT["uint64"]
 	ot, ok := s.DB.OT[typ]
-	s.DB.Lock.Unlock()
+	s.DB.RUnlock()
 
 	var er error
 	var e []error
@@ -121,10 +121,10 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 }
 
 func (s *SetterFactory) link(typ string, o interface{}) []error {
-	s.DB.Lock.Lock()
+	s.DB.RLock()
 	//ftUint64 := s.DB.FT["uint64"]
 	lt, ok := s.DB.LT[typ]
-	s.DB.Lock.Unlock()
+	s.DB.RUnlock()
 	var e []error
 	if !ok {
 		e = append(e, errors.New("link of type '"+typ+"' cannot be found in the database"))
@@ -192,11 +192,11 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 }
 
 func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fieldName string, fieldNewValue interface{}) (uint64, []error) {
-	s.DB.Lock.Lock()
+	s.DB.RLock()
 	ftUint64 := s.DB.FT["uint64"]
 	objectTypeField, ok := s.DB.OT[objectTypeName].Fields[fieldName]
 	fieldType := s.DB.FT[objectTypeField.FieldType]
-	s.DB.Lock.Unlock()
+	s.DB.RUnlock()
 
 	var er error
 	var e []error
@@ -205,8 +205,13 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 		e = append(e, errors.New("object of type '"+objectTypeName+"' cannot be found in the database"))
 		return objectId, e
 	}
+	var fieldNewValueValidated interface{}
+	if objectTypeField.Validate != nil {
+		ok, fieldNewValueValidated, er = objectTypeField.Validate(fieldNewValue, s.DB)
+	} else {
+		fieldNewValueValidated = fieldNewValue
+	}
 
-	ok, fieldNewValueValidated, er := objectTypeField.Validate(fieldNewValue, s.DB)
 	fieldNewValueValidatedbytes, err2 := fieldType.Set(fieldNewValueValidated)
 
 	if err2 != nil {
@@ -240,10 +245,10 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 }
 
 func (s *SetterFactory) linkField(linkTypeName string, from uint64, to uint64, fieldName string, fieldNewValue interface{}) []error {
-	s.DB.Lock.Lock()
+	s.DB.RLock()
 	ftUint64 := s.DB.FT["uint64"]
 	linkType, ok := s.DB.LT[linkTypeName]
-	s.DB.Lock.Unlock()
+	s.DB.RUnlock()
 
 	var er error
 	var e []error
@@ -262,7 +267,13 @@ func (s *SetterFactory) linkField(linkTypeName string, from uint64, to uint64, f
 		return e
 	}
 
-	ok, fieldNewValueValidated, er := linkTypeField.Validate(fieldNewValue, s.DB)
+	var fieldNewValueValidated interface{}
+	if linkTypeField.Validate != nil {
+		ok, fieldNewValueValidated, er = linkTypeField.Validate(fieldNewValue, s.DB)
+	} else {
+		fieldNewValueValidated = fieldNewValue
+	}
+
 	fieldNewValueValidatedbytes, err2 := fieldType.Set(fieldNewValueValidated)
 
 	if err2 != nil {
@@ -317,8 +328,7 @@ func (s *SetterFactory) Run() {
 		r := recover()
 
 		if r != nil {
-			fmt.Println("Recovered in Setter.Run ", r)
-
+			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Setter.Run ")
 			if er.Errors == nil {
 				er.Errors = make([]error, 0)
 			}
@@ -360,6 +370,14 @@ func (s *SetterFactory) Run() {
 
 		case "save.link":
 			err := s.link(job.Data[0].(string), job.Data[1])
+			er.Errors = err
+			if job.Ret != nil {
+				job.Ret <- er
+				close(job.Ret)
+			}
+
+		case "save.link.field":
+			err := s.linkField(job.Data[0].(string), job.Data[1].(uint64), job.Data[2].(uint64), job.Data[3].(string), job.Data[4])
 			er.Errors = err
 			if job.Ret != nil {
 				job.Ret <- er
