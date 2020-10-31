@@ -2,8 +2,11 @@ package simpleg
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"log"
 	"runtime/debug"
+	"strconv"
 
 	badger "github.com/dgraph-io/badger/v2"
 )
@@ -33,7 +36,7 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 	allowIndexing := s.DB.FTO[s.DB.OT[objectType].Fields[fieldName].FieldType].AllowIndexing
 	s.DB.RUnlock()
 	if fieldIndexed == true && allowIndexing == true {
-		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, string(id), fieldName))
+		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, fieldName, string(id)))
 		//If item does not exist in the db just create the new index only
 		if oldErr != nil && oldErr == badger.ErrKeyNotFound {
 			s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
@@ -115,8 +118,6 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 
 	}
 
-	//_ = s.DB.KV.FlushWrites()
-
 	return i, e
 }
 
@@ -167,14 +168,18 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 	if err != nil {
 		e = append(e, err)
 	}
-	data, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, typ, string(to), string(from), "CREATED"))
+	data, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, typ, "INDEXED+", string(to), string(from)))
 	// if opposites are the same just use prexisting link
-	if data != nil && lt.OppositeSame {
-		h := to
-		to = from
-		from = h
+	r := ""
+	if data != nil {
+		q, _ := data.ValueCopy(nil)
+		g, _ := binary.Uvarint(q)
+		r = strconv.Itoa(int(g))
 	}
-	if data != nil && !lt.Multiple {
+
+	log.Print("0000000000000000000000000000000000000 " + strconv.Itoa(lt.Type) + " == " + r)
+	if data != nil && (lt.Type == 1 || lt.Type == 2) {
+		log.Print("============================== " + strconv.Itoa(lt.Type))
 		h := to
 		to = from
 		from = h
@@ -185,7 +190,8 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 		for key, v := range m {
 			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(from), string(to), key.GetFullString(s.DB.KV.D))
 		}
-		s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "CREATED"}], s.DB.Options.DBName, typ+"-", string(from), string(to), "CREATED")
+		s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED-", string(to), string(from))
+		s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED+", string(from), string(to))
 	}
 
 	return e
@@ -351,16 +357,32 @@ func (s *SetterFactory) Run() {
 		switch job.Ins {
 
 		case "save.object":
-			id, err := s.object(job.Data[0].(string), job.Data[1])
+			one, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			id, err := s.object(one, job.Data[1])
 			er.ID = id
-			er.Errors = err
+			er.Errors = append(er.Errors, err...)
 			if job.Ret != nil {
 				job.Ret <- er
 				close(job.Ret)
 			}
 
 		case "save.object.field":
-			id, err := s.objectField(job.Data[0].(string), job.Data[1].(uint64), job.Data[2].(string), job.Data[3])
+			one, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			two, ok := job.Data[1].(uint64)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			three, ok := job.Data[2].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			id, err := s.objectField(one, two, three, job.Data[3])
 			er.ID = id
 			er.Errors = err
 			if job.Ret != nil {
@@ -369,7 +391,11 @@ func (s *SetterFactory) Run() {
 			}
 
 		case "save.link":
-			err := s.link(job.Data[0].(string), job.Data[1])
+			one, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			err := s.link(one, job.Data[1])
 			er.Errors = err
 			if job.Ret != nil {
 				job.Ret <- er
@@ -377,7 +403,23 @@ func (s *SetterFactory) Run() {
 			}
 
 		case "save.link.field":
-			err := s.linkField(job.Data[0].(string), job.Data[1].(uint64), job.Data[2].(uint64), job.Data[3].(string), job.Data[4])
+			one, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			two, ok := job.Data[1].(uint64)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			three, ok := job.Data[2].(uint64)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			four, ok := job.Data[3].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			err := s.linkField(one, two, three, four, job.Data[4])
 			er.Errors = err
 			if job.Ret != nil {
 				job.Ret <- er

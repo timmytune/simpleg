@@ -1,10 +1,8 @@
 package simpleg
 
 import (
-	"errors"
-	"fmt"
+	"log"
 	"os"
-	debug "runtime/debug"
 	"sync"
 	"testing"
 	"time"
@@ -17,337 +15,6 @@ var u FieldTypeUint64
 var d FieldTypeDate
 var db *DB
 
-type User struct {
-	db        *DB
-	ID        uint64
-	firstName string
-	lastName  string
-	email     string
-	active    bool
-	age       int64
-}
-
-type Friend struct {
-	db       *DB
-	FROM     uint64
-	TO       uint64
-	CREATED  time.Time
-	accepted bool
-}
-
-func GetUserOption() ObjectTypeOptions {
-	uo := ObjectTypeOptions{}
-	uo.Name = "User"
-	uo.New = func(db *DB) interface{} {
-		return User{db: db, active: true}
-	}
-	uo.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
-		e := make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
-		db.RLock()
-		defer db.RUnlock()
-		u := User{db: db}
-
-		if id, ok := m[KeyValueKey{Main: "ID"}]; ok {
-			f, err := db.FT["uint64"].Get(id)
-			if err != nil {
-				e = append(e, err)
-				return nil, e
-			}
-			u.ID = f.(uint64)
-		} else {
-			e = append(e, errors.New("The Data from the DB has no ID"))
-			return nil, e
-		}
-		if f, ok := m[KeyValueKey{Main: "firstName"}]; ok {
-			v, err := db.FT["string"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				u.firstName = v.(string)
-			}
-		}
-		if f, ok := m[KeyValueKey{Main: "lastName"}]; ok {
-			v, err := db.FT["string"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				u.lastName = v.(string)
-			}
-		}
-		if f, ok := m[KeyValueKey{Main: "email"}]; ok {
-			v, err := db.FT["string"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				u.email = v.(string)
-			}
-		}
-		if f, ok := m[KeyValueKey{Main: "active"}]; ok {
-			v, err := db.FT["bool"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				u.active = v.(bool)
-			}
-		}
-		if f, ok := m[KeyValueKey{Main: "age"}]; ok {
-			v, err := db.FT["int64"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				u.age = v.(int64)
-			}
-		}
-		return u, e
-	}
-	uo.Set = func(i interface{}, db *DB) (u map[KeyValueKey][]byte, e []error) {
-		u = make(map[KeyValueKey][]byte)
-		e = make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
-		d := i.(User)
-		db.RLock()
-		defer db.RUnlock()
-		if d.ID > 0 {
-			u[KeyValueKey{Main: "ID"}], _ = db.FT["uint64"].Set(d.ID)
-		}
-		if d.firstName != "" {
-			u[KeyValueKey{Main: "firstName"}], _ = db.FT["string"].Set(d.firstName)
-		}
-		if d.lastName != "" {
-			u[KeyValueKey{Main: "lastName"}], _ = db.FT["string"].Set(d.lastName)
-		}
-		if d.email != "" {
-			u[KeyValueKey{Main: "email"}], _ = db.FT["string"].Set(d.email)
-		}
-		u[KeyValueKey{Main: "active"}], _ = db.FT["bool"].Set(d.active)
-		if d.age > 0 {
-			u[KeyValueKey{Main: "age"}], _ = db.FT["int64"].Set(d.age)
-		}
-		return
-	}
-	uo.Validate = func(i interface{}, db *DB) (interface{}, []error) {
-		e := make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Validate User", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
-		db.RLock()
-		defer db.RUnlock()
-		d := i.(User)
-		x, y, z := db.OT["User"].Fields["firstName"].Validate(d.firstName, db)
-		if !x {
-			e = append(e, z)
-		} else {
-			d.firstName = y.(string)
-		}
-		x, y, z = db.OT["User"].Fields["lastName"].Validate(d.lastName, db)
-
-		if !x {
-			e = append(e, z)
-		} else {
-			d.lastName = y.(string)
-
-		}
-		x, y, z = db.OT["User"].Fields["email"].Validate(d.email, db)
-		if !x {
-			e = append(e, z)
-		} else {
-			d.email = y.(string)
-		}
-		x, y, z = db.OT["User"].Fields["age"].Validate(d.age, db)
-		if !x {
-			e = append(e, z)
-		}
-
-		return d, e
-	}
-	fv := FieldValidation{}
-	uo.Fields = make(map[string]FieldOptions)
-	uo.Fields["firstName"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.String("firstName", 3, 20, true, true, false)}
-	uo.Fields["lastName"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.String("lastName", 3, 20, true, true, false)}
-	uo.Fields["email"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.Email("email", true)}
-	uo.Fields["active"] = FieldOptions{Indexed: false, FieldType: "bool", Validate: nil}
-	uo.Fields["age"] = FieldOptions{Indexed: true, FieldType: "int64", Validate: fv.Int64("age", 10, -1)}
-
-	return uo
-}
-
-func GetFriendLinkOption() LinkTypeOptions {
-	fl := LinkTypeOptions{}
-	fl.OppositeSame = true
-	fl.Multiple = false
-	fl.Name = "Friend"
-	fl.From = "User"
-	fl.To = "User"
-	fl.New = func(db *DB) interface{} {
-		return Friend{db: db, CREATED: time.Now()}
-	}
-	fl.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
-		e := make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
-		db.RLock()
-		defer db.RUnlock()
-		friend := Friend{db: db}
-		if f, ok := m[KeyValueKey{Main: "FROM"}]; ok {
-			v, err := db.FT["uint64"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				friend.FROM = v.(uint64)
-			}
-		} else {
-			e = append(e, errors.New("The Data from the DB has no FROM field set"))
-			return nil, e
-		}
-		if f, ok := m[KeyValueKey{Main: "TO"}]; ok {
-			v, err := db.FT["uint64"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				friend.TO = v.(uint64)
-			}
-		} else {
-			e = append(e, errors.New("The Data from the DB has no TO field set"))
-			return nil, e
-		}
-		if f, ok := m[KeyValueKey{Main: "accepted"}]; ok {
-			v, err := db.FT["bool"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				friend.accepted = v.(bool)
-			}
-		}
-		if f, ok := m[KeyValueKey{Main: "CREATED"}]; ok {
-			v, err := db.FT["date"].Get(f)
-			if err != nil {
-				e = append(e, err)
-			} else {
-				friend.CREATED = v.(time.Time)
-			}
-		}
-		return u, e
-	}
-	fl.Set = func(i interface{}, db *DB) (u map[KeyValueKey][]byte, e []error) {
-		u = make(map[KeyValueKey][]byte)
-		e = make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
-		d, ok := i.(Friend)
-		if !ok {
-			e = append(e, errors.New("The Provided struct is not of type Friend"))
-			return nil, e
-		}
-		db.RLock()
-		defer db.RUnlock()
-		if d.FROM > 0 {
-			u[KeyValueKey{Main: "FROM"}], _ = db.FT["uint64"].Set(d.FROM)
-		} else {
-			e = append(e, errors.New("From Field not provided"))
-		}
-		if d.TO > 0 {
-			u[KeyValueKey{Main: "TO"}], _ = db.FT["uint64"].Set(d.TO)
-		} else {
-			e = append(e, errors.New("TO Field not provided"))
-		}
-		u[KeyValueKey{Main: "accepted"}], _ = db.FT["bool"].Set(d.accepted)
-		u[KeyValueKey{Main: "CREATED"}], _ = db.FT["date"].Set(d.CREATED)
-		return
-	}
-	fl.Validate = func(i interface{}, db *DB) (interface{}, []error) {
-		e := make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Validate User", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
-		return i, e
-	}
-	//fv := FieldValidation{}
-	fl.Fields = make(map[string]FieldOptions)
-	fl.Fields["accepted"] = FieldOptions{FieldType: "bool"}
-	fl.Fields["CREATED"] = FieldOptions{FieldType: "date"}
-
-	return fl
-}
-
 func TestMain(m *testing.M) {
 
 	s = FieldTypeBool{}
@@ -357,10 +24,7 @@ func TestMain(m *testing.M) {
 	d = FieldTypeDate{}
 
 	opt := DefaultOptions()
-	db = &DB{}
-	db.Init(opt)
-	db.AddObjectType(GetUserOption())
-	db.AddLinkType(GetFriendLinkOption())
+	db = InitDB(opt)
 	db.Start()
 
 	ret := m.Run()
@@ -372,10 +36,12 @@ func TestMain(m *testing.M) {
 
 }
 
-func TestSetObject(t *testing.T) {
+func TestAll(t *testing.T) {
+	//------------------------ set of 10 friend node objects
+
 	var wg sync.WaitGroup
 	start := time.Now()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 9; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -390,23 +56,42 @@ func TestSetObject(t *testing.T) {
 			u.age = int64(19)
 			re := db.Set("save.object", "User", u)
 			if len(re.Errors) != 0 {
-				t.Error("simpleg.Set Failed Test got:", ret)
+				t.Error("simpleg.Set Failed Test got:", re)
 			}
 		}()
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
-	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
+	Log.Printf("++++ Test Set 10 friend Object took %s", elapsed)
 
-}
+	var w1 sync.WaitGroup
+	start = time.Now()
+	for i := 0; i < 10; i++ {
+		w1.Add(1)
+		go func() {
+			defer w1.Done()
+			ret := db.Get("object.new", "Post")
+			if len(ret.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test get user:", ret)
+			}
+			u, _ := ret.Data.(Post)
+			u.body = "Yinka sdgsgsdgsdfsdfsfdd  sd gsdgsgs dgsdg s ds gsd gsdgg sd s sdgsd gsdfsdff s sdfsdfs dfsdfsddf  sdfsdfsf asfasf a fasff fsfas asfsf"
+			re := db.Set("save.object", "Post", u)
+			if len(re.Errors) != 0 {
+				t.Error("simpleg.Set Failed Test got:", re)
+			}
+		}()
+	}
+	w1.Wait()
+	elapsed = time.Since(start)
+	Log.Printf("++++ Test Set 10 friend Object took %s", elapsed)
 
-func TestSetters(t *testing.T) {
-	start := time.Now()
-
+	//--------------------------------- get one friend object
 	re := db.Get("object.new", "User")
 	if len(re.Errors) > 0 {
 		t.Error("simpleg.Set Failed Test get user:", re)
 	}
+
 	u, _ := re.Data.(User)
 	u.firstName = "Femi"
 	u.lastName = "Adedoyin"
@@ -421,6 +106,7 @@ func TestSetters(t *testing.T) {
 	if len(re.Errors) > 0 {
 		t.Error("simpleg.Set Failed Test get user:", re)
 	}
+
 	uu, _ := re.Data.(User)
 	uu.firstName = "Fe"
 	uu.lastName = "Ad"
@@ -430,95 +116,248 @@ func TestSetters(t *testing.T) {
 	if len(ret.Errors) == 0 {
 		t.Error("simpleg.Set Failed Test got:", ret)
 	}
-	fmt.Println("The errors that where thrown ", ret)
-
-	ret = db.Set("save.object.field", "User", ret.ID, "lastName", "Adebara")
-
+	//--------------------------------- Update object field
+	ret = db.Set("save.object.field", "User", uint64(2), "lastName", "Adebara")
 	if len(ret.Errors) != 0 {
+		t.Error("simpleg.Update lastName Failed Test got:", ret)
+	}
+
+	ret = db.Set("save.object.field", "User", uint64(2), "email", "yinka@gmail.com")
+	if len(ret.Errors) != 0 {
+		t.Error("simpleg.Update user email Failed Test got:", ret)
+	}
+
+	ret = db.Set("save.object.field", "User", uint64(2), "age", int64(121))
+	if len(ret.Errors) == 0 {
 		t.Error("simpleg.Update Failed Test got:", ret)
 	}
-	elapsed := time.Since(start)
+	//Get preexisting objects
+	//rand.Seed(time.Now().UnixNano())
 
-	Log.Printf("-------------------------------------------- Test Setter took %s", elapsed)
-	time.Sleep(1 * time.Second)
-	//data, _ := db.KV.Stream([]string{"simpleg"}, nil) //, "^", "User", "^", string(ret.ID)
-	//log.Print("Data in the database", data)
-}
-
-func TestGetObject(t *testing.T) {
-	//var wg sync.WaitGroup
-	start := time.Now()
-	for i := 1; i < 5; i++ {
-		//wg.Add(1)
-		//go func() {
-		//defer wg.Done()
-		ret := db.Get("object.single", "User", uint64(i))
-		if len(ret.Errors) > 0 {
-			t.Error("simpleg.Set Failed Test get user:", ret)
-		}
-		u, _ := ret.Data.(User)
-		Log.Print("-------------------------------------------- Test Get Object", u)
-
-		//}()
-	}
-	//wg.Wait()
-	elapsed := time.Since(start)
-	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
-
-}
-
-func TestGetObjects(t *testing.T) {
-	//var wg sync.WaitGroup
-	//time.Sleep(3 * time.Second)
-	start := time.Now()
-	q := db.Query()
-	n := NodeQuery{}
-	n.Name("da").Object("User").Q("age", ">=", int64(12)).Order("ID", "dsc")
-	q.Do("object", n)
-	ret := q.Return("array", "da")
-	if len(ret.Errors) > 0 {
-		t.Error("simpleg.Query Failed Test get users:", ret.Errors)
-	}
-	//u, _ := ret.Data.([]User)
-	Log.Print("-------------------------------------------- Test Get Objects", ret)
-	//wg.Wait()
-	elapsed := time.Since(start)
-	Log.Printf("-------------------------------------------- Test Set Objects took %s", elapsed)
-}
-
-func TestSetLink(t *testing.T) {
-	time.Sleep(1 * time.Second)
-	var wg sync.WaitGroup
-	start := time.Now()
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
+	var w sync.WaitGroup
+	start = time.Now()
+	for i := 1; i < 10; i++ {
+		w.Add(1)
 		go func() {
-			defer wg.Done()
-			ret := db.Get("link.new", "Friend")
-			if len(ret.Errors) > 0 {
-				t.Error("simpleg.Set Failed Test get Friend:", ret)
+			defer w.Done()
+			retGet := db.Get("object.single", "User", uint64(8))
+			if len(retGet.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test get user:", retGet)
 			}
-			//Log.Print("Get Friend _________________________-", ret.Data)
-			f, ok := ret.Data.(Friend)
+			_, ok := retGet.Data.(User)
 			if !ok {
-				t.Error("simpleg.SetLink Failed Test get user:", ret)
+				t.Error("simpleg.Set Failed Test get user: convert ret to User", retGet)
 			}
-			f.FROM = uint64(1)
-			f.TO = uint64(2)
-			f.accepted = true
-			r := db.Set("save.link", "Friend", f)
-			if len(r.Errors) > 0 {
-				t.Error("simpleg.Set Failed Test set Friend:", r)
-			}
-			r = db.Set("save.link.field", "Friend", uint64(1), uint64(2), "accepted", false)
-			if len(r.Errors) > 0 {
-				Log.Printf("-------------------------------------------- Test Set Object took %s", debug.Stack())
-				t.Error("simpleg.Set Failed Test set Friend:", r)
-			}
+
 		}()
 	}
-	wg.Wait()
-	elapsed := time.Since(start)
-	Log.Printf("-------------------------------------------- Test Set Object took %s", elapsed)
+	w.Wait()
+	elapsed = time.Since(start)
+	Log.Printf("++++ Test Get Object took %s", elapsed)
 
+	time.Sleep(10 * time.Second)
+	//-----------------------------------------Get objects with raw query
+	start = time.Now()
+	q := db.Query()
+	n := NodeQuery{}
+	n.Name("da").Object("User").Q("age", ">=", int64(7)).Order("ID", "dsc").Limit(100)
+	q.Do("object", n)
+	retGet := q.Return("array", "da")
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
+	} else {
+		log.Print("---- 4444 ---- ", len(retGet.Data.([]interface{})))
+	}
+	q2 := db.Query()
+	n2 := NodeQuery{}
+	n2.Name("da").Object("Post").Order("ID", "dsc").Limit(100)
+	q2.Do("object", n2)
+	retGet7 := q2.Return("array", "da")
+	if len(retGet7.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test get users:", retGet7.Errors)
+	} else {
+		log.Print("---- 5555 ---- ", len(retGet7.Data.([]interface{})))
+	}
+	//Log.Print("-------------------------------------------- Test Get Objects ", len(retGet7.Data.([]interface{})))
+	//wg.Wait()
+	elapsed = time.Since(start)
+	Log.Printf("++++ Test Get Objects with raw query took %s", elapsed)
+
+	//--------------------------------------- Set Friend Links up to 800
+	//var wg2 sync.WaitGroup
+
+	start = time.Now()
+	for i := 0; i < 10; i++ {
+		//wg2.Add(1)
+		//func() {
+		//defer wg2.Done()
+		ret := db.Get("link.new", "Friend")
+		if len(ret.Errors) > 0 {
+			t.Error("simpleg.Set Failed Test get Friend:", ret)
+		}
+		f, ok := ret.Data.(Friend)
+		if !ok {
+			t.Error("simpleg.SetLink Failed Test get user:", ret)
+		}
+		f.FROM = uint64(i + 1)
+		f.TO = uint64(9 - i + 1)
+		f.accepted = false
+		if (i + 1) != (9 - i + 1) {
+			r := db.Set("save.link", "Friend", f)
+			if len(r.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test set Friend:", r.Errors)
+			}
+		}
+		time.Sleep(1 * time.Second)
+		//	}()
+	}
+
+	elapsed = time.Since(start)
+	Log.Printf("++++ Test Set Links %s", elapsed)
+
+	r := db.Set("save.link.field", "Friend", uint64(1), uint64(8), "accepted", true)
+	if len(r.Errors) > 0 {
+		t.Error("simpleg.Set Failed Test set Friend:", r)
+	}
+	//-------------------------------------------------------- Test Get Link
+	ret2 := db.Get("link.single", "Friend", "->", uint64(1), uint64(7))
+	if len(ret2.Errors) > 0 {
+		t.Error("simpleg.Get Failed Test get Friend:", ret2)
+	}
+
+	n5 := NodeQuery{}
+	q5 := db.Query()
+	n5.Name("da").Link("Friend", "->").Limit(10).Q("accepted", "==", true)
+	q5.Do("link", n5)
+	ret3 := q5.Return("array", "da")
+	if len(ret3.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", ret3.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", ret3)
+	}
+	Log.Print("---- cccccccccccc Test Get Link returned ", len(ret3.Data.([]interface{})))
+	n4 := NodeQuery{}
+	q4 := db.Query()
+	n4.Name("da").Link("Friend", "->").Limit(100)
+	q4.Do("link", n4)
+	ret4 := q4.Return("array", "da")
+	if len(ret4.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", ret4.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", ret4)
+	}
+	Log.Print("---- ddddddddddddd Test Get Link returned ", len(ret4.Data.([]interface{})))
+
+	start = time.Now()
+	for i := 0; i < 10; i++ {
+		//wg2.Add(1)
+		//func() {
+		//defer wg2.Done()
+		reta := db.Get("link.new", "Like")
+		if len(reta.Errors) > 0 {
+			t.Error("simpleg.Set Failed Test get Like:", reta)
+		}
+		f, ok := reta.Data.(Like)
+		if !ok {
+			t.Error("simpleg.SetLink Failed Test get user:", reta)
+		}
+		f.FROM = uint64(i + 1)
+		f.TO = uint64(9 - i + 1)
+		r := db.Set("save.link", "Like", f)
+		if len(r.Errors) > 0 {
+			t.Error("simpleg.Set Failed Test set Like:", r)
+		}
+		//	}()
+
+	}
+
+	elapsed = time.Since(start)
+	Log.Printf("++++ Test Set Links %s", elapsed)
+	time.Sleep(1 * time.Second)
+
+	for i := 0; i < 10; i++ {
+		ret := db.Get("link.new", "Friend")
+		if len(ret.Errors) > 0 {
+			t.Error("simpleg.Set Failed Test get Friend:", ret)
+		}
+		f, ok := ret.Data.(Friend)
+		if !ok {
+			t.Error("simpleg.SetLink Failed Test get user:", ret)
+		}
+		f.FROM = uint64(2)
+		f.TO = uint64(9 - i + 1)
+		f.accepted = false
+		if 2 != (9-i+1) && 0 != (9-i+1) {
+			r := db.Set("save.link", "Friend", f)
+			if len(r.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test set Friend:", r, f)
+			}
+		}
+
+		ret2 := db.Get("link.new", "Friend")
+		if len(ret2.Errors) > 0 {
+			t.Error("simpleg.Set Failed Test get Friend:", ret)
+		}
+		f2, ok := ret2.Data.(Friend)
+		if !ok {
+			t.Error("simpleg.SetLink Failed Test get user:", ret)
+		}
+		f2.TO = uint64(10)
+		f2.FROM = uint64(9 - i + 1)
+		f2.accepted = false
+		if 10 != (9-i+1) && 0 != (9-i+1) {
+			r := db.Set("save.link", "Friend", f2)
+			if len(r.Errors) > 0 {
+				t.Error("simpleg.Set Failed Test set Friend:", r)
+			}
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	time.Sleep(10 * time.Second)
+
+	n6 := NodeQuery{}
+	q6 := db.Query()
+	n6.Name("da").Link("Friend", "->").Limit(100).Q("FROM", "==", uint64(2))
+	q6.Do("link", n6)
+	ret6 := q6.Return("array", "da")
+	if len(ret6.Errors) > 0 {
+		t.Error("simpleg.Get Failed Test get Friend:", ret6.Errors)
+	} else {
+		log.Print("---- 5.5.5.5 ---- ", len(ret6.Data.([]interface{})))
+	}
+
+	n7 := NodeQuery{}
+	q7 := db.Query()
+	n7.Name("da").Link("Friend", "-").Limit(100).Q("FROM", "==", uint64(10))
+	q7.Do("link", n6)
+	ret7 := q6.Return("array", "da")
+	if len(ret7.Errors) > 0 {
+		t.Error("simpleg.Get Failed Test get Friend:", ret7.Errors)
+	} else {
+		log.Print("---- 6666 ---- ", len(ret7.Data.([]interface{})))
+	}
+
+	startUser := NodeQuery{}
+	startUser.Object("User").Q("ID", "==", uint64(2))
+
+	friends := NodeQuery{}
+	friends.Link("Friend", "-")
+
+	mutual := NodeQuery{}
+	mutual.Object("User").Name("mutual")
+
+	friends2 := NodeQuery{}
+	friends2.Link("Friend", "-")
+
+	endUser := NodeQuery{}
+	endUser.Object("User").Q("ID", "==", uint64(10)).Limit(100)
+
+	query := db.Query()
+	query.Do("graph.p", startUser, friends, mutual, friends2, endUser)
+	retQuery := query.Return("map", "mutual")
+	if len(retQuery.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", retQuery.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", retQuery)
+	} else {
+		log.Print("---- 8888 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
+	}
 }

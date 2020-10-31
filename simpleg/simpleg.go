@@ -44,16 +44,15 @@ type ObjectTypeOptions struct {
 }
 
 type LinkTypeOptions struct {
-	Name         string
-	OppositeSame bool
-	Multiple     bool
-	From         string
-	To           string
-	Fields       map[string]FieldOptions
-	Set          func(interface{}, *DB) (map[KeyValueKey][]byte, []error)
-	Validate     func(interface{}, *DB) (interface{}, []error)
-	Get          func(map[KeyValueKey][]byte, *DB) (interface{}, []error)
-	New          func(*DB) interface{}
+	Name     string
+	Type     int
+	From     string
+	To       string
+	Fields   map[string]FieldOptions
+	Set      func(interface{}, *DB) (map[KeyValueKey][]byte, []error)
+	Validate func(interface{}, *DB) (interface{}, []error)
+	Get      func(map[KeyValueKey][]byte, *DB) (interface{}, []error)
+	New      func(*DB) interface{}
 }
 
 type Options struct {
@@ -125,6 +124,7 @@ func (db *DB) Init(o Options) error {
 	Log.Info().Msg("Database initiated")
 	return nil
 }
+
 func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	defer func() {
 		r := recover()
@@ -153,6 +153,7 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	s = <-ch
 	return
 }
+
 func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 	q := Query{DB: db}
 	defer func() {

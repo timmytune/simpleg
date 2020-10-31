@@ -2,9 +2,12 @@ package simpleg
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,10 +37,16 @@ type NodeQuery struct {
 }
 
 func (g *NodeQuery) Object(typ string) *NodeQuery {
+	if g.Instructions == nil {
+		g.Instructions = make(map[string][]NodeQueryInstruction)
+	}
 	g.TypeName = typ
 	return g
 }
 func (g *NodeQuery) Link(typ string, direction string) *NodeQuery {
+	if g.Instructions == nil {
+		g.Instructions = make(map[string][]NodeQueryInstruction)
+	}
 	g.TypeName = typ
 	g.Direction = direction
 	return g
@@ -111,6 +120,12 @@ func (q *Query) Return(returnType string, args ...interface{}) GetterRet {
 			q.ReturnType = 2
 		case "map":
 			q.ReturnType = 3
+		default:
+			ret := GetterRet{}
+			ret.Errors = make([]error, 0)
+			ret.Errors = append(ret.Errors, errors.New("Invalid return type provided you can only use one of 'single', 'array' or 'map' "))
+			close(q.Ret)
+			return ret
 		}
 	}
 	q.DB.Getter.Input <- *q
@@ -133,16 +148,16 @@ type ObjectList struct {
 		typ   bool
 	}
 }
-
+type LinkListList struct {
+	FROM []byte
+	TO   []byte
+}
 type LinkList struct {
 	LinkName string
 	isIds    bool
 	Links    []map[KeyValueKey][]byte
-	IDs      []struct {
-		FROM []byte
-		TO   []byte
-	}
-	order struct {
+	IDs      []LinkListList
+	order    struct {
 		field string
 		typ   bool
 	}
@@ -203,12 +218,19 @@ type iteratorLoader struct {
 func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQueryInstruction, txn *badger.Txn) []error {
 	var errs []error
 	db.RLock()
-	vaa, ok := db.OT[obj].Fields[field]
-	if !ok {
-		errs = append(errs, errors.New("Field -"+field+"- Not found for object -"+obj+"- in the Database"))
+	if field == "" {
+		field = "ID"
+		i.indexed = true
+		i.fieldType = db.FT["uint64"]
+	} else {
+		vaa, ok := db.OT[obj].Fields[field]
+		if !ok {
+			errs = append(errs, errors.New("Field -"+field+"- Not found for object -"+obj+"- in the Database"))
+		}
+		i.indexed = vaa.Indexed
+		i.fieldType = db.FT[db.OT[obj].Fields[field].FieldType]
 	}
-	i.indexed = vaa.Indexed
-	i.fieldType = db.FT[db.OT[obj].Fields[field].FieldType]
+
 	i.field = field
 	i.txn = txn
 	i.obj = obj
@@ -355,7 +377,7 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
 				return r, false, nil
 			}
-			var v []byte
+			//var v []byte
 			var buffer bytes.Buffer
 			buffer.WriteString(i.db.Options.DBName)
 			buffer.WriteString(i.db.KV.D)
@@ -369,36 +391,40 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
 			}
-			v, err = item2.ValueCopy(v)
-			if err != nil {
-				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
-				return nil, false, err
-			}
+			if item2 != nil {
+				v, err := item2.ValueCopy(nil)
+				if err != nil {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
+					return nil, false, err
+				}
 
-			boa := false
-			for _, ins := range i.query {
-				rawQueryData, err := i.fieldType.Set(ins.param)
-				if err != nil {
-					return nil, false, err
+				boa := false
+				for _, ins := range i.query {
+					rawQueryData, err := i.fieldType.Set(ins.param)
+					if err != nil {
+						return nil, false, err
+					}
+					boa, err = i.fieldType.Compare(ins.action, v, rawQueryData)
+					if err != nil {
+						return nil, false, err
+					}
+					if !boa {
+						break
+					}
 				}
-				boa, err = i.fieldType.Compare(ins.action, v, rawQueryData)
-				if err != nil {
-					return nil, false, err
+				if boa {
+					notValid = false
+					others := ""
+					if len(kArray) > 4 {
+						ks := string(item2.KeyCopy(nil))
+						ksa := strings.Split(ks, i.db.KV.D)
+						others = strings.Join(ksa[4:], i.db.KV.D)
+					}
+					r[KeyValueKey{Main: i.field, Subs: others}] = v
+					r[KeyValueKey{Main: "ID"}] = kArray[3]
+				} else {
+					i.iterator.Next()
 				}
-				if !boa {
-					break
-				}
-			}
-			if boa {
-				notValid = false
-				others := ""
-				if len(kArray) > 4 {
-					ks := string(item2.KeyCopy(nil))
-					ksa := strings.Split(ks, i.db.KV.D)
-					others = strings.Join(ksa[4:], i.db.KV.D)
-				}
-				r[KeyValueKey{Main: i.field, Subs: others}] = v
-				r[KeyValueKey{Main: "ID"}] = kArray[3]
 			} else {
 				i.iterator.Next()
 			}
@@ -431,6 +457,31 @@ func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[Ke
 			key := KeyValueKey{}
 			err := key.Set(k, g.DB.KV.D, 3)
 			if err != nil {
+				errs = append(errs, err)
+			} else {
+				ret[key] = v
+			}
+
+		}
+	}
+	return ret, errs
+}
+func (g *GetterFactory) getKeysWithValueLinks(txn *badger.Txn, pre ...string) (map[KeyValueKey][]byte, []error) {
+	ret := make(map[KeyValueKey][]byte)
+	errs := make([]error, 0)
+	it := txn.NewIterator(badger.DefaultIteratorOptions)
+	defer it.Close()
+	pr := []byte(strings.Join(pre, g.DB.KV.D))
+	for it.Seek(pr); it.ValidForPrefix(pr); it.Next() {
+		item := it.Item()
+		k := item.Key()
+		v, err := item.ValueCopy(nil)
+		if err != nil && err != badger.ErrKeyNotFound {
+			errs = append(errs, err)
+		} else {
+			key := KeyValueKey{}
+			err := key.Set(k, g.DB.KV.D, 4)
+			if err != nil && err != badger.ErrKeyNotFound {
 				errs = append(errs, err)
 			} else {
 				ret[key] = v
@@ -483,6 +534,51 @@ func (g *GetterFactory) getObjectArray(o *ObjectList) ([]interface{}, []error) {
 	}
 	return ret, errs
 }
+func (g *GetterFactory) getLinkArray(o *LinkList) ([]interface{}, []error) {
+	var errs []error
+	if o.order.field != "" && !o.isIds {
+		sort.Slice(o.Links, func(i, j int) bool {
+			b := bytes.Compare(o.Links[i][KeyValueKey{Main: o.order.field}], o.Links[j][KeyValueKey{Main: o.order.field}])
+			if b == 1 || b == 0 {
+				if o.order.typ {
+					return false
+				} else {
+					return true
+				}
+			} else {
+				if o.order.typ {
+					return true
+				} else {
+					return false
+				}
+			}
+		})
+	}
+	if o.isIds {
+		errs = append(errs, errors.New("Can't get Links for type "+o.LinkName))
+		return nil, errs
+	}
+	ret := make([]interface{}, 0)
+	g.DB.RLock()
+	ot, ok := g.DB.LT[o.LinkName]
+	g.DB.RUnlock()
+	if !ok {
+		errs = append(errs, errors.New("Can't find object of name "+o.LinkName))
+		return nil, errs
+	}
+
+	for _, val := range o.Links {
+		v, errs2 := ot.Get(val, g.DB)
+		if len(errs2) > 0 {
+			errs = append(errs, errs2...)
+
+		} else {
+			ret = append(ret, v)
+		}
+
+	}
+	return ret, errs
+}
 func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool) (*ObjectList, []error) {
 	ret := ObjectList{}
 	ret.isIds = isIds
@@ -516,6 +612,11 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 					if err != nil {
 						errs = append(errs, err)
 					} else {
+						prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "ID" + g.DB.KV.D + string(id)
+						_, err := txn.Get([]byte(prefix))
+						if err != nil {
+							errs = append(errs, err)
+						}
 						ret.IDs = append(ret.IDs, id)
 					}
 
@@ -537,7 +638,6 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 							ret.Objects = append(ret.Objects, obj)
 						}
 					}
-
 				}
 				return &ret, errs
 			}
@@ -672,182 +772,354 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 	ret.LinkName = node.TypeName
 	ret.order.field = node.Sort
 	ret.order.typ = node.SortType
-	linkSkips := 0
-	linkCount := 0
+	objectSkips := 0
+	objectCount := 0
 	var errs []error
 	if node.limit == 0 {
 		node.limit = 100
 	}
 	if isIds {
-		ret.IDs = make([][]byte, 0)
+		ret.IDs = make([]LinkListList, 0)
 	} else {
-		ret.Objects = make([]map[KeyValueKey][]byte, 0)
+		ret.Links = make([]map[KeyValueKey][]byte, 0)
 	}
-	if node.Direction != "" {
-		errs = append(errs, ErrLinkInObjectLoader)
+	if node.Direction == "" {
+		errs = append(errs, errors.New("This NodeQuery object is not for loading links"))
+		return nil, errs
+	}
+	g.DB.RLock()
+	_, ok := g.DB.LT[ret.LinkName]
+	g.DB.RUnlock()
+	if !ok {
+		errs = append(errs, errors.New("LinkType '"+ret.LinkName+"' not found in database"))
+		return nil, errs
+	}
+	if node.Direction == "-" {
+		errs = append(errs, errors.New("You can't load links of type '-'"))
 		return nil, errs
 	}
 	ins, ok := node.Instructions["FROM"]
 	ins2, ok2 := node.Instructions["TO"]
-	if ok {
+	if ok && ok2 {
+
+		var to, from uint64
 		for _, query := range ins {
 			if query.action == "==" {
-				if isIds {
-					// just return an object list with the id requested
-					ret.IDs = make([][]byte, 0)
-					g.DB.RLock()
-					id, err := g.DB.FT["uint64"].Set(query.param)
-					if err != nil {
-						errs = append(errs, err)
-					} else {
-						ret.IDs = append(ret.IDs, id)
-					}
+				from, ok = query.param.(uint64)
+				if !ok {
+					errs = append(errs, errors.New("Invalid argument provided in nodequery"))
+				}
+			}
+		}
+		for _, query := range ins2 {
+			if query.action == "==" {
+				to, ok = query.param.(uint64)
+				if !ok {
+					errs = append(errs, errors.New("Invalid argument provided in nodequery"))
+				}
+			}
+		}
+		if from != uint64(0) && to != uint64(0) {
+			if isIds {
+				g.DB.RLock()
+				f, err := g.DB.FT["uint64"].Set(from)
+				if err != nil {
+					errs = append(errs, err)
+				}
+				t, err := g.DB.FT["uint64"].Set(to)
+				if err != nil {
+					errs = append(errs, err)
+				}
+				indexed := ""
+				if node.Direction == "->" {
+					indexed = "INDEXED+"
+				} else {
+					indexed = "INDEXED-"
+				}
+				prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + indexed + string(f) + g.DB.KV.D + string(t)
+				_, err = txn.Get([]byte(prefix))
+				if err != nil {
+					errs = append(errs, err)
+				}
+				ret.IDs = append(ret.IDs, LinkListList{FROM: f, TO: t})
+				g.DB.RUnlock()
+				return &ret, errs
+			}
+			g.DB.RLock()
+			rawFrom, er := g.DB.FT["uint64"].Set(from)
+			rawTo, er := g.DB.FT["uint64"].Set(to)
+			g.DB.RUnlock()
+			if er != nil {
+				errs = append(errs, er)
+			} else {
+				var obj map[KeyValueKey][]byte
+				var err []error
+				if node.Direction == "<-" {
+					obj, err = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(rawTo), string(rawFrom))
+				} else {
+					obj, err = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(rawFrom), string(rawTo))
+				}
+				if len(err) > 0 {
+					errs = append(errs, err...)
+				}
 
-					g.DB.RUnlock()
+				if obj != nil {
+					obj[KeyValueKey{Main: "FROM"}] = rawFrom
+					obj[KeyValueKey{Main: "TO"}] = rawTo
+					ret.Links = append(ret.Links, obj)
 					return &ret, errs
+				}
+			}
+
+		}
+
+	}
+
+	if ok && !ok2 {
+
+		var from uint64
+		for _, query := range ins {
+			if query.action == "==" {
+				from, ok = query.param.(uint64)
+				if !ok {
+					errs = append(errs, errors.New("Invalid argument provided in nodequery"))
+				}
+			}
+		}
+
+		if from != uint64(0) {
+			g.DB.RLock()
+			f, err := g.DB.FT["uint64"].Set(from)
+
+			g.DB.RUnlock()
+			if err != nil {
+				errs = append(errs, err)
+			}
+			indexed := ""
+			if node.Direction == "->" {
+				indexed = "INDEXED+"
+			} else {
+				indexed = "INDEXED-"
+			}
+			prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + indexed + g.DB.KV.D + string(f)
+
+			opt := badger.DefaultIteratorOptions
+			opt.Prefix = []byte(prefix)
+			opt.PrefetchSize = 20
+			opt.PrefetchValues = false
+			iterator := txn.NewIterator(opt)
+			defer iterator.Close()
+			brk := false
+			iterator.Seek([]byte(prefix))
+
+			for !brk {
+				if !iterator.ValidForPrefix([]byte(prefix)) {
+					iterator.Close()
+					return &ret, errs
+				}
+				item := iterator.Item()
+				var key []byte
+				key = item.KeyCopy(key)
+				kArray := bytes.Split(key, []byte(g.DB.KV.D))
+				if isIds {
+					ret.IDs = append(ret.IDs, LinkListList{FROM: f, TO: kArray[4]})
 				} else {
 					g.DB.RLock()
-					rawID, er := g.DB.FT["uint64"].Set(query.param)
+					rawFrom, er := g.DB.FT["uint64"].Set(from)
 					g.DB.RUnlock()
 					if er != nil {
 						errs = append(errs, er)
 					} else {
-						obj, err := g.getKeysWithValue(txn, g.DB.Options.DBName, node.TypeName, string(rawID))
+						var obj map[KeyValueKey][]byte
+						var err []error
+						if node.Direction == "<-" {
+							obj, err = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(rawFrom), string(kArray[4]))
+						} else {
+							obj, err = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(rawFrom), string(kArray[4]))
+						}
 						if len(err) > 0 {
 							errs = append(errs, err...)
 						}
+
 						if obj != nil {
-							obj[KeyValueKey{Main: "ID"}] = rawID
-							ret.Objects = append(ret.Objects, obj)
+							obj[KeyValueKey{Main: "FROM"}] = rawFrom
+							obj[KeyValueKey{Main: "TO"}] = kArray[4]
+							ret.Links = append(ret.Links, obj)
 						}
 					}
-
 				}
+				iterator.Next()
+			}
+		} else {
+			errs = append(errs, errors.New("Invalid ID privided in Node query"))
+		}
+
+	}
+
+	var prefix []byte
+	if node.Direction == "<-" {
+		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "INDEXED-")
+	} else if node.Direction == "->" {
+		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "INDEXED+")
+	} else if node.Direction == "-" {
+		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "INDEXED+")
+	}
+	opt := badger.DefaultIteratorOptions
+	opt.Prefix = prefix
+	opt.PrefetchSize = 20
+	opt.PrefetchValues = false
+	iterator := txn.NewIterator(opt)
+	defer iterator.Close()
+	brk := false
+	iterator.Seek(prefix)
+	for !brk {
+		if !iterator.ValidForPrefix(prefix) {
+			iterator.Close()
+			return &ret, errs
+		}
+		d := make(map[KeyValueKey][]byte)
+		item := iterator.Item()
+		var key []byte
+		key = item.KeyCopy(key)
+
+		kArray := bytes.Split(key, []byte(g.DB.KV.D))
+		failed := false
+		if len(node.Instructions) < 1 {
+			failed = false
+		}
+		for key, in1 := range node.Instructions {
+			var fieldType FieldType
+			g.DB.RLock()
+			va, ok := g.DB.LT[node.TypeName].Fields[key]
+			if !ok {
+				errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
+				iterator.Close()
+				g.DB.RUnlock()
 				return &ret, errs
 			}
-
-		}
-	}
-
-	iterator := iteratorLoader{}
-	errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn)
-	defer iterator.close()
-
-	for d, b, e := iterator.next(); b; d, b, e = iterator.next() {
-		failed := false
-		if e != nil {
-			errs = append(errs, e)
-		}
-		if d != nil {
-			delete(node.Instructions, node.index)
-			for key, in1 := range node.Instructions {
-				g.DB.RLock()
-				var fieldType FieldType
-				va, ok := g.DB.OT[node.TypeName].Fields[key]
-				if !ok {
-					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
-					g.DB.RUnlock()
-					return &ret, errs
-				} else {
-					fieldType = g.DB.FT[va.FieldType]
+			fieldType = g.DB.FT[va.FieldType]
+			g.DB.RUnlock()
+			var buffer bytes.Buffer
+			buffer.WriteString(g.DB.Options.DBName)
+			buffer.WriteString(g.DB.KV.D)
+			buffer.WriteString(node.TypeName)
+			buffer.WriteString(g.DB.KV.D)
+			if node.Direction == "<-" {
+				buffer.Write(kArray[4])
+			} else {
+				buffer.Write(kArray[3])
+			}
+			buffer.WriteString(g.DB.KV.D)
+			if node.Direction == "<-" {
+				buffer.Write(kArray[3])
+			} else {
+				buffer.Write(kArray[4])
+			}
+			buffer.WriteString(g.DB.KV.D)
+			buffer.WriteString(key)
+			item2, err := txn.Get(buffer.Bytes())
+			if err != nil && err == badger.ErrKeyNotFound {
+			} else if err != nil && err != badger.ErrKeyNotFound {
+				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+				errs = append(errs, err)
+				iterator.Close()
+				return &ret, errs
+			} else if err == nil && item2 != nil {
+				var val []byte
+				for _, in2 := range in1 {
+					rawParam, err := fieldType.Set(in2.param)
+					if err != nil {
+						errs = append(errs, err)
+						return &ret, errs
+					}
+					val, err = item2.ValueCopy(nil)
+					if err != nil {
+						Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+						iterator.Close()
+						errs = append(errs, err)
+						return &ret, errs
+					}
+					ok, err := fieldType.Compare(in2.action, val, rawParam)
+					if err != nil {
+						errs = append(errs, err)
+						iterator.Close()
+						return &ret, errs
+					}
+					if !ok {
+						failed = true
+					}
 				}
-				g.DB.RUnlock()
+				if !failed {
+					if !isIds {
+						d[KeyValueKey{Main: key}] = val
+					}
+				}
+			}
 
-				var buffer bytes.Buffer
-				buffer.WriteString(g.DB.Options.DBName)
-				buffer.WriteString(g.DB.KV.D)
-				buffer.WriteString(node.TypeName)
-				buffer.WriteString(g.DB.KV.D)
-				buffer.Write(d[KeyValueKey{Main: "ID"}])
-				buffer.WriteString(g.DB.KV.D)
-				buffer.WriteString(key)
-				item, err := txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					errs = append(errs, err)
-					return &ret, errs
-				} else if err == nil && item != nil {
-					var val []byte
-					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							errs = append(errs, err)
-							return &ret, errs
-						}
-						val, err = item.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							errs = append(errs, err)
-							return &ret, errs
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							errs = append(errs, err)
-							return &ret, errs
-						}
+		}
+		if !failed {
+			if node.skip > objectSkips {
+				objectSkips++
+			} else {
+				if node.limit <= objectCount {
+					break
+				}
+				if isIds {
+					ret.IDs = append(ret.IDs, LinkListList{kArray[3], kArray[4]})
+				} else {
+					notIncluded := make([]string, 0)
+					g.DB.RLock()
+					for k := range g.DB.LT[node.TypeName].Fields {
+						_, ok = d[KeyValueKey{Main: k}]
 						if !ok {
-							failed = true
+							notIncluded = append(notIncluded, k)
 						}
 					}
-					if !failed {
-						if !isIds {
-							d[KeyValueKey{Main: key}] = val
+					g.DB.RUnlock()
+					for _, v := range notIncluded {
+						var buffer bytes.Buffer
+						buffer.WriteString(g.DB.Options.DBName)
+						buffer.WriteString(g.DB.KV.D)
+						buffer.WriteString(node.TypeName)
+						buffer.WriteString(g.DB.KV.D)
+						if node.Direction == "<-" {
+							buffer.Write(kArray[4])
+						} else {
+							buffer.Write(kArray[3])
 						}
-					}
-				}
+						buffer.WriteString(g.DB.KV.D)
+						if node.Direction == "<-" {
+							buffer.Write(kArray[3])
+						} else {
+							buffer.Write(kArray[4])
+						}
+						buffer.WriteString(g.DB.KV.D)
+						buffer.WriteString(v)
 
-			}
-			if !failed {
-				if node.skip > objectSkips {
-					objectSkips++
-				} else {
-					if node.limit <= objectCount {
-						break
-					}
-					if isIds {
-						ret.IDs = append(ret.IDs, d[KeyValueKey{Main: "ID"}])
-					} else {
-						notIncluded := make([]string, 0)
-						g.DB.RLock()
-						for k := range g.DB.OT[node.TypeName].Fields {
-							_, ok = d[KeyValueKey{Main: k}]
-							if !ok {
-								notIncluded = append(notIncluded, k)
-							}
+						item, err := txn.Get(buffer.Bytes())
+						if err != nil && err != badger.ErrKeyNotFound {
+							errs = append(errs, err)
 						}
-						g.DB.RUnlock()
-						for _, v := range notIncluded {
-							var buffer bytes.Buffer
-							buffer.WriteString(g.DB.Options.DBName)
-							buffer.WriteString(g.DB.KV.D)
-							buffer.WriteString(node.TypeName)
-							buffer.WriteString(g.DB.KV.D)
-							buffer.Write(d[KeyValueKey{Main: "ID"}])
-							buffer.WriteString(g.DB.KV.D)
-							buffer.WriteString(v)
-
-							item, err := txn.Get(buffer.Bytes())
-							if err != nil && err != badger.ErrKeyNotFound {
+						if item != nil {
+							val, err := item.ValueCopy(nil)
+							if err != nil {
 								errs = append(errs, err)
-							}
-							if item != nil {
-								val, err := item.ValueCopy(nil)
-								if err != nil {
-									errs = append(errs, err)
-								} else {
-									d[KeyValueKey{Main: v}] = val
-								}
+							} else {
+								d[KeyValueKey{Main: v}] = val
 							}
 						}
-						ret.Objects = append(ret.Objects, d)
 					}
-					objectCount++
+					d[KeyValueKey{Main: "FROM"}] = kArray[3]
+					d[KeyValueKey{Main: "TO"}] = kArray[4]
+					ret.Links = append(ret.Links, d)
 				}
-
+				objectCount++
 			}
+
 		}
+		iterator.Next()
 	}
+
 	return &ret, errs
 }
 func (g *GetterFactory) Start(db *DB, numOfRuners int, inputChannelLength int, transactionValidityDuration uint64) {
@@ -860,12 +1132,13 @@ func (g *GetterFactory) Start(db *DB, numOfRuners int, inputChannelLength int, t
 }
 func (g *GetterFactory) Run() {
 	var job Query
-	var ret GetterRet
+	//var ret GetterRet
 	var data map[string]interface{}
 	var txn *badger.Txn
 	defer func() {
 		r := recover()
 		if r != nil {
+			ret := GetterRet{}
 			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in Getter.Run ")
 			if ret.Errors == nil {
 				ret.Errors = make([]error, 0)
@@ -892,7 +1165,7 @@ func (g *GetterFactory) Run() {
 
 	for {
 		job = <-g.Input
-		ret = GetterRet{}
+		ret := GetterRet{}
 		ret.Errors = make([]error, 0)
 		data = make(map[string]interface{})
 		if txn == nil {
@@ -902,7 +1175,6 @@ func (g *GetterFactory) Run() {
 			txn.Discard()
 			txn = g.DB.KV.DB.NewTransaction(false)
 		}
-		//log.Print("-------------------------------------------- Instruction", job)
 		for _, val := range job.Instructions {
 			switch val.Action {
 			case "return":
@@ -913,6 +1185,10 @@ func (g *GetterFactory) Run() {
 				GetterObjects(g, txn, &data, &job, val.Params, &ret)
 			case "link.new":
 				GetterNewLink(g, txn, &data, &job, val.Params, &ret)
+			case "link":
+				GetterLinks(g, txn, &data, &job, val.Params, &ret)
+			case "graph.p":
+				GetterGraphStraight(g, txn, &data, &job, val.Params, &ret)
 			default:
 				ret.Errors = append(ret.Errors, errors.New("Invalid Istruction in GetterFactory: "+val.Action))
 			}
@@ -929,7 +1205,11 @@ func (g *GetterFactory) Run() {
 //return New object
 func GetterNewObject(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
 	g.DB.RLock()
-	ot, ok := g.DB.OT[qData[0].(string)]
+	one, ok := qData[0].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in nodequery"))
+	}
+	ot, ok := g.DB.OT[one]
 	g.DB.RUnlock()
 	if !ok {
 		ret.Errors = append(ret.Errors, ErrObjectTypeNotFound)
@@ -944,7 +1224,11 @@ func GetterNewObject(g *GetterFactory, txn *badger.Txn, data *map[string]interfa
 //params [1] Object name (String)
 //placesses objectLists found in node query [0] in variable [1]
 func GetterObjects(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
-	n := qData[0].(NodeQuery)
+	n, bul := qData[0].(NodeQuery)
+	if !bul {
+		ret.Errors = append(ret.Errors, errors.New("Invalid NodeQuery provided"))
+		return
+	}
 	obs, errs := g.LoadObjects(txn, n, false)
 	if len(errs) > 0 {
 		ret.Errors = append(ret.Errors, errs...)
@@ -957,16 +1241,31 @@ func GetterObjects(g *GetterFactory, txn *badger.Txn, data *map[string]interface
 // for returntype 1. params [0] Object name (String), params [1] Index of the objects to return (int)
 //return interface{}
 func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+
 	if q.ReturnType == 1 {
 		da := (*data)[qData[0].(string)]
 		switch da.(type) {
 		case *ObjectList:
-			r, errs := g.getObjectArray(da.(*ObjectList))
-			if len(errs) > 0 {
-				ret.Errors = append(ret.Errors, errs...)
+			d2 := da.(*ObjectList)
+			if d2 != nil {
+				r, errs := g.getObjectArray(da.(*ObjectList))
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+				}
+				if r != nil && len(r) > 0 {
+					ret.Data = r[qData[1].(int)]
+				}
 			}
-			if r != nil && len(r) > 0 {
-				ret.Data = r[qData[1].(int)]
+		case *LinkList:
+			d2 := da.(*LinkList)
+			if d2 != nil {
+				r, errs := g.getLinkArray(da.(*LinkList))
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+				}
+				if r != nil && len(r) > 0 {
+					ret.Data = r[qData[1].(int)]
+				}
 			}
 		default:
 			ret.Data = (*data)[qData[0].(string)]
@@ -977,27 +1276,65 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 		da := (*data)[qData[0].(string)]
 		switch da.(type) {
 		case *ObjectList:
-			r, errs := g.getObjectArray(da.(*ObjectList))
-			if len(errs) > 0 {
-				ret.Errors = append(ret.Errors, errs...)
+			d2 := da.(*ObjectList)
+			if d2 != nil {
+				r, errs := g.getObjectArray(da.(*ObjectList))
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+				}
+				if r != nil {
+					ret.Data = r
+				}
 			}
-			if r != nil && len(r) > 0 {
-				ret.Data = r
+		case *LinkList:
+			d2 := da.(*LinkList)
+			if d2 != nil {
+				r, errs := g.getLinkArray(da.(*LinkList))
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+				}
+				if r != nil {
+					ret.Data = r
+				}
 			}
+
 		}
 	}
 	if q.ReturnType == 3 {
-		da := (*data)[qData[0].(string)]
-		switch da.(type) {
-		case *ObjectList:
-			r, errs := g.getObjectArray(da.(*ObjectList))
-			if len(errs) > 0 {
-				ret.Errors = append(ret.Errors, errs...)
+		returned := make(map[string]interface{})
+		for _, val := range qData {
+			da, ok := (*data)[val.(string)]
+			if ok {
+				switch da.(type) {
+				case *ObjectList:
+					d2 := da.(*ObjectList)
+					if d2 != nil {
+						r, errs := g.getObjectArray(da.(*ObjectList))
+						if len(errs) > 0 {
+							ret.Errors = append(ret.Errors, errs...)
+						}
+						if r != nil {
+							returned[val.(string)] = r
+						}
+					}
+				case *LinkList:
+					d2 := da.(*LinkList)
+					if d2 != nil {
+						r, errs := g.getLinkArray(da.(*LinkList))
+						if len(errs) > 0 {
+							ret.Errors = append(ret.Errors, errs...)
+						}
+						if r != nil {
+							returned[val.(string)] = r
+						}
+					}
+				default:
+					returned[val.(string)] = (*data)[val.(string)]
+				}
 			}
-			if r != nil && len(r) > 0 {
-				ret.Data = r
-			}
+
 		}
+		ret.Data = returned
 	}
 	q.Ret <- *ret
 }
@@ -1007,8 +1344,13 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 //params [0] Link name (String)
 //return New link
 func GetterNewLink(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+	st, bul := qData[0].(string)
+	if !bul {
+		ret.Errors = append(ret.Errors, errors.New("Invalid NodeQuery provided"))
+		return
+	}
 	g.DB.RLock()
-	lt, ok := g.DB.LT[qData[0].(string)]
+	lt, ok := g.DB.LT[st]
 	g.DB.RUnlock()
 	if !ok {
 		ret.Errors = append(ret.Errors, ErrObjectTypeNotFound)
@@ -1017,16 +1359,1552 @@ func GetterNewLink(g *GetterFactory, txn *badger.Txn, data *map[string]interface
 	q.Ret <- *ret
 }
 
-//GetterObjects ..
+//GetterLinks ..
 //action: 'objects'
 //params [0] NodeQuery (NodeQuery)
 //params [1] Object name (String)
-//placesses objectLists found in node query [0] in variable [1]
+//placesses LinkLists found in node query [0] in variable [1]
 func GetterLinks(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
-	n := qData[0].(NodeQuery)
-	obs, errs := g.LoadObjects(txn, n, false)
+	n, bul := qData[0].(NodeQuery)
+	if !bul {
+		ret.Errors = append(ret.Errors, errors.New("Invalid NodeQuery provided"))
+		return
+	}
+	obs, errs := g.LoadLinks(txn, n, false)
 	if len(errs) > 0 {
 		ret.Errors = append(ret.Errors, errs...)
 	}
 	(*data)[n.saveName] = obs
+}
+
+type iteratorLoaderGraphStart struct {
+	node      *NodeQuery
+	g         *GetterFactory
+	txn       *badger.Txn
+	notFirst  bool
+	prefix    string
+	fieldType FieldType
+	query     []NodeQueryInstruction
+	iterator  *badger.Iterator
+	field     string
+	obj       string
+	indexed   bool
+	reverse   bool
+	gottenID  bool
+	left      struct {
+		ins string
+		val string
+	}
+	center struct {
+		ins string
+		val string
+	}
+	right struct {
+		ins string
+		val string
+	}
+}
+
+func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn *badger.Txn) []error {
+	obj := node.TypeName
+	field := node.index
+	inst := node.Instructions[node.index]
+	var errs []error
+	g.DB.RLock()
+	vaa, ok := g.DB.OT[obj].Fields[field]
+	if !ok {
+		errs = append(errs, errors.New("Field -"+field+"- Not found for object -"+obj+"- in the Database"))
+	}
+	i.indexed = vaa.Indexed
+	i.fieldType = g.DB.FT[g.DB.OT[obj].Fields[field].FieldType]
+	i.field = field
+	i.txn = txn
+	i.obj = obj
+	i.g = g
+	g.DB.RUnlock()
+	i.node = node
+	index := ""
+	delete(node.Instructions, node.index)
+	//i.iterator = txn.NewIterator()
+
+	if i.indexed {
+		for _, d := range inst {
+			val, ins, err := i.fieldType.CompareIndexed(d.action, d.param)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			switch ins {
+			case "==":
+				i.center.ins = ins
+				i.center.val = val
+			case ">=":
+				i.left.ins = ins
+				i.left.val = val
+			case ">":
+				i.left.ins = ins
+				i.left.val = val
+			case "<=":
+				i.right.ins = ins
+				i.right.val = val
+			case "<":
+				i.right.ins = ins
+				i.right.val = val
+			}
+		}
+		if i.center.ins != "" {
+			index = i.center.val
+		} else if i.left.ins != "" && i.right.ins == "" {
+			index = i.left.val
+		} else if i.left.ins != "" && i.right.ins != "" {
+			index = i.left.val
+		} else if i.left.ins == "" && i.right.ins != "" {
+			index = i.right.val
+			i.reverse = true
+		}
+		i.prefix = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + field + g.DB.KV.D + index
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(i.prefix)
+		opt.PrefetchSize = 20
+		opt.Reverse = i.reverse
+		opt.PrefetchValues = false
+		i.iterator = txn.NewIterator(opt)
+	} else {
+		i.prefix = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + "ID"
+		opt := badger.DefaultIteratorOptions
+		opt.PrefetchValues = false
+		opt.Prefix = []byte(i.prefix)
+		opt.PrefetchSize = 20
+		i.iterator = txn.NewIterator(opt)
+		i.query = inst
+	}
+	i.iterator.Seek([]byte(i.prefix))
+	return errs
+}
+func (i *iteratorLoaderGraphStart) close() {
+	if i.iterator != nil {
+		i.iterator.Close()
+	}
+}
+func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) {
+	r := make(map[KeyValueKey][]byte)
+	var k []byte
+	var kArray [][]byte
+	notValid := true
+
+	for notValid {
+		item := i.iterator.Item()
+		k = item.KeyCopy(k)
+		kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
+		if i.indexed {
+			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
+			if string(kArray[2]) != i.field {
+				i.iterator.Next()
+				item = i.iterator.Item()
+				k = item.KeyCopy(k)
+				kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
+				if string(kArray[2]) != i.field {
+					return r, false, nil
+				}
+
+			}
+			passed := 0
+			if i.center.ins != "" {
+				if i.iterator.ValidForPrefix([]byte(i.prefix)) {
+					passed++
+				} else {
+					return r, false, nil
+				}
+			} else {
+				passed++
+			}
+
+			if i.left.ins != "" {
+				d := bytes.Compare(kArray[3], []byte(i.left.val))
+				if d == -1 && i.reverse {
+					return r, false, nil
+				}
+				if i.left.ins == ">" && d == 1 {
+					passed++
+				}
+				if i.left.ins == ">=" && (d == 1 || d == 0) {
+					passed++
+				}
+			} else {
+				passed++
+			}
+
+			if i.right.ins != "" {
+				d := bytes.Compare(kArray[3], []byte(i.right.val))
+				if d == 1 && !i.reverse {
+					return r, false, nil
+				}
+				if i.right.ins == "<" && d == -1 {
+					passed++
+				}
+				if i.right.ins == "<=" && (d == -1 || d == 0) {
+					passed++
+				}
+			} else {
+				passed++
+			}
+
+			if passed > 2 {
+				notValid = false
+				r[KeyValueKey{Main: string(kArray[2])}] = kArray[3]
+				r[KeyValueKey{Main: "ID"}] = kArray[4]
+			}
+		} else {
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
+				return r, false, nil
+			}
+			var v []byte
+			var buffer bytes.Buffer
+			buffer.WriteString(i.g.DB.Options.DBName)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.WriteString(i.obj)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.Write(kArray[3])
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.WriteString(i.field)
+			item2, err := i.txn.Get(buffer.Bytes())
+			if err != nil && err != badger.ErrKeyNotFound {
+				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
+				return nil, false, err
+			} else if item2 == nil {
+				//i.iterator.Next()
+			} else {
+				v, err = item2.ValueCopy(v)
+				if err != nil {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
+					return nil, false, err
+				}
+
+				boa := false
+				for _, ins := range i.query {
+					rawQueryData, err := i.fieldType.Set(ins.param)
+					if err != nil {
+						return nil, false, err
+					}
+					boa, err = i.fieldType.Compare(ins.action, v, rawQueryData)
+					if err != nil {
+						return nil, false, err
+					}
+					if !boa {
+						break
+					}
+				}
+				if boa {
+					notValid = false
+					others := ""
+					if len(kArray) > 4 {
+						ks := string(item2.KeyCopy(nil))
+						ksa := strings.Split(ks, i.g.DB.KV.D)
+						others = strings.Join(ksa[4:], i.g.DB.KV.D)
+					}
+					r[KeyValueKey{Main: i.field, Subs: others}] = v
+					r[KeyValueKey{Main: "ID"}] = kArray[3]
+				}
+			}
+
+		}
+		i.iterator.Next()
+	}
+
+	return r, true, nil
+}
+func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, c bool, e []error) {
+	if i.node.saveName == "" {
+		b = make([]byte, 0)
+	} else {
+		a = make(map[KeyValueKey][]byte, 0)
+	}
+	if i.node.Direction != "" {
+		e = append(e, ErrLinkInObjectLoader)
+		return
+	}
+	ins, ok := i.node.Instructions["ID"]
+	if ok {
+		for _, query := range ins {
+			if query.action == "==" {
+				if i.gottenID {
+					c = false
+					return
+				}
+
+				// just return an object list with the id requested
+				i.g.DB.RLock()
+				id, err := i.g.DB.FT["uint64"].Set(query.param)
+				i.g.DB.RUnlock()
+				if err != nil {
+					e = append(e, err)
+					return
+				}
+
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString("ID")
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.Write(id)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.Write(id)
+				_, err = i.txn.Get(buffer.Bytes())
+				if err != nil && err != badger.ErrKeyNotFound {
+					e = append(e, err)
+					return
+				}
+
+				if err != nil && err == badger.ErrKeyNotFound {
+					c = false
+					return
+				}
+
+				i.gottenID = true
+				c = true
+
+				if i.node.saveName == "" {
+					b = id
+				} else {
+					i.g.DB.RLock()
+					rawID, er := i.g.DB.FT["uint64"].Set(query.param)
+					i.g.DB.RUnlock()
+					if er != nil {
+						e = append(e, er)
+					} else {
+						obj, err := i.g.getKeysWithValue(i.txn, i.g.DB.Options.DBName, i.node.TypeName, string(rawID))
+						if len(err) > 0 {
+							e = append(e, err...)
+						}
+						if obj != nil {
+							obj[KeyValueKey{Main: "ID"}] = rawID
+							a = obj
+							c = true
+						}
+					}
+				}
+				return
+			}
+
+		}
+	}
+
+	iterator := i
+	do := true
+	//errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn)
+	for do {
+		d, j, errs := iterator.next()
+		failed := false
+		if e != nil {
+			e = append(e, errs)
+		}
+		if !j {
+			do = false
+			c = false
+			return
+		}
+		if d != nil {
+			for key, in1 := range i.node.Instructions {
+				i.g.DB.RLock()
+				var fieldType FieldType
+				va, ok := i.g.DB.OT[i.node.TypeName].Fields[key]
+				if !ok {
+					e = append(e, errors.New("Field name -"+key+"- not found in database"))
+					i.g.DB.RUnlock()
+					return
+				} else {
+					fieldType = i.g.DB.FT[va.FieldType]
+				}
+				i.g.DB.RUnlock()
+
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.Write(d[KeyValueKey{Main: "ID"}])
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(key)
+				item, err := i.txn.Get(buffer.Bytes())
+				if err != nil && err == badger.ErrKeyNotFound {
+				} else if err != nil && err != badger.ErrKeyNotFound {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					e = append(e, err)
+					return
+				} else if err == nil && item != nil {
+					var val []byte
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							e = append(e, err)
+							return
+						}
+						val, err = item.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							e = append(e, err)
+							return
+						}
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							e = append(e, err)
+							return
+						}
+						if !ok {
+							failed = true
+						}
+					}
+					if !failed {
+						if i.node.saveName != "" {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
+				}
+
+			}
+			if !failed {
+				c = true
+				do = false
+				if i.node.saveName == "" {
+					b = d[KeyValueKey{Main: "ID"}]
+				} else {
+					notIncluded := make([]string, 0)
+					i.g.DB.RLock()
+					for k := range i.g.DB.OT[i.node.TypeName].Fields {
+						_, ok = d[KeyValueKey{Main: k}]
+						if !ok {
+							notIncluded = append(notIncluded, k)
+						}
+					}
+					i.g.DB.RUnlock()
+					for _, v := range notIncluded {
+						var buffer bytes.Buffer
+						buffer.WriteString(i.g.DB.Options.DBName)
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(i.node.TypeName)
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(d[KeyValueKey{Main: "ID"}])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(v)
+
+						item, err := i.txn.Get(buffer.Bytes())
+						if err != nil && err != badger.ErrKeyNotFound {
+							e = append(e, err)
+						}
+						if item != nil {
+							val, err := item.ValueCopy(nil)
+							if err != nil {
+								e = append(e, err)
+							} else {
+								d[KeyValueKey{Main: v}] = val
+							}
+						}
+					}
+					a = d
+				}
+			}
+		}
+	}
+	return
+}
+
+type iteratorLoaderGraphLink struct {
+	node             *NodeQuery
+	g                *GetterFactory
+	txn              *badger.Txn
+	prefix           string
+	currentDirection string
+	iterator         *badger.Iterator
+	from             []byte
+}
+
+func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b LinkListList, c []error, loaded bool) {
+	errs := make([]error, 0)
+	i.from = from
+
+	switch i.node.Direction {
+	case "->", "<-":
+		if i.node.Direction == "->" {
+			i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED+" + i.g.DB.KV.D + string(from)
+		} else {
+			i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED-" + i.g.DB.KV.D + string(from)
+		}
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(i.prefix)
+		opt.PrefetchSize = 20
+		opt.PrefetchValues = false
+		i.iterator = i.txn.NewIterator(opt)
+		i.iterator.Seek([]byte(i.prefix))
+		for !loaded {
+			d := make(map[KeyValueKey][]byte)
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
+				loaded = false
+				return
+			}
+			item := i.iterator.Item()
+			key := item.KeyCopy(nil)
+			ka := bytes.Split(key, []byte(i.g.DB.KV.D))
+			failed := true
+			if len(i.node.Instructions) < 1 {
+				failed = false
+			}
+			for key, in1 := range i.node.Instructions {
+				var fieldType FieldType
+				i.g.DB.RLock()
+				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				if !ok {
+					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
+					i.iterator.Close()
+					i.g.DB.RUnlock()
+					return
+				}
+				fieldType = i.g.DB.FT[va.FieldType]
+				i.g.DB.RUnlock()
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				if i.node.Direction == "->" {
+					buffer.Write(ka[3])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[4])
+				} else {
+					buffer.Write(ka[4])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[3])
+				}
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(key)
+				item2, err := i.txn.Get(buffer.Bytes())
+				if err != nil && err == badger.ErrKeyNotFound {
+				} else if err != nil && err != badger.ErrKeyNotFound {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					errs = append(errs, err)
+					i.iterator.Close()
+					return
+				} else if err == nil && item2 != nil {
+					var val []byte
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							errs = append(errs, err)
+							return
+						}
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							errs = append(errs, err)
+							i.iterator.Close()
+							return
+						}
+						if !ok {
+							failed = true
+							break
+						}
+					}
+					if !failed {
+						if i.node.saveName != "" {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
+				}
+
+			}
+			if !failed {
+
+				loaded = true
+				if i.node.saveName == "" {
+					b = LinkListList{ka[3], ka[4]}
+				} else {
+					notIncluded := make([]string, 0)
+					i.g.DB.RLock()
+					for k := range i.g.DB.LT[i.node.TypeName].Fields {
+						_, ok := d[KeyValueKey{Main: k}]
+						if !ok {
+							notIncluded = append(notIncluded, k)
+						}
+					}
+					i.g.DB.RUnlock()
+					for _, v := range notIncluded {
+						var buffer bytes.Buffer
+						buffer.WriteString(i.g.DB.Options.DBName)
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(i.node.TypeName)
+						buffer.WriteString(i.g.DB.KV.D)
+						if i.node.Direction == "->" {
+							buffer.Write(ka[3])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[4])
+						} else {
+							buffer.Write(ka[4])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[3])
+						}
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(v)
+						item, err := i.txn.Get(buffer.Bytes())
+						if err != nil && err != badger.ErrKeyNotFound {
+							errs = append(errs, err)
+						}
+						if item != nil {
+							val, err := item.ValueCopy(nil)
+							if err != nil {
+								errs = append(errs, err)
+							} else {
+								d[KeyValueKey{Main: v}] = val
+							}
+						}
+					}
+					d[KeyValueKey{Main: "FROM"}] = ka[3]
+					d[KeyValueKey{Main: "TO"}] = ka[4]
+					a = d
+				}
+
+			}
+			i.iterator.Next()
+		}
+	case "-":
+		i.g.DB.RLock()
+		lt, ok := i.g.DB.LT[i.node.TypeName]
+		i.g.DB.RUnlock()
+		if !ok {
+			errs = append(errs, errors.New("link of type '"+i.node.TypeName+"' cannot be found in the database"))
+			return
+		}
+		if lt.Type != 1 {
+			errs = append(errs, errors.New("link of type '"+i.node.TypeName+"' does not suppport direction -"))
+			return
+		}
+		i.currentDirection = "->"
+		i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED+" + i.g.DB.KV.D + string(from)
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(i.prefix)
+		opt.PrefetchSize = 20
+		opt.PrefetchValues = false
+		i.iterator = i.txn.NewIterator(opt)
+		i.iterator.Seek([]byte(i.prefix))
+		for !loaded {
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "->" {
+				i.currentDirection = "<-"
+				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED-" + i.g.DB.KV.D + string(from)
+				opt := badger.DefaultIteratorOptions
+				opt.Prefix = []byte(i.prefix)
+				opt.PrefetchSize = 20
+				opt.PrefetchValues = false
+				i.iterator = i.txn.NewIterator(opt)
+				i.iterator.Seek([]byte(i.prefix))
+			}
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "<-" {
+				loaded = false
+				return
+			}
+			d := make(map[KeyValueKey][]byte)
+			item := i.iterator.Item()
+			key := item.KeyCopy(nil)
+			ka := bytes.Split(key, []byte(i.g.DB.KV.D))
+			failed := true
+			if len(i.node.Instructions) < 1 {
+				failed = false
+			}
+			for key, in1 := range i.node.Instructions {
+				var fieldType FieldType
+				i.g.DB.RLock()
+				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				if !ok {
+					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
+					i.iterator.Close()
+					i.g.DB.RUnlock()
+					return
+				}
+				fieldType = i.g.DB.FT[va.FieldType]
+				i.g.DB.RUnlock()
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				if i.currentDirection == "->" {
+					buffer.Write(ka[3])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[4])
+				} else {
+					buffer.Write(ka[4])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[3])
+				}
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(key)
+				item2, err := i.txn.Get(buffer.Bytes())
+				if err != nil && err == badger.ErrKeyNotFound {
+				} else if err != nil && err != badger.ErrKeyNotFound {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					errs = append(errs, err)
+					i.iterator.Close()
+					return
+				} else if err == nil && item2 != nil {
+					var val []byte
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							errs = append(errs, err)
+							return
+						}
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							errs = append(errs, err)
+							i.iterator.Close()
+							return
+						}
+						if !ok {
+							failed = true
+							break
+						}
+					}
+					if !failed {
+						if i.node.saveName != "" {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
+				}
+
+			}
+			if !failed {
+				loaded = true
+				if i.node.saveName == "" {
+					b = LinkListList{ka[3], ka[4]}
+				} else {
+					notIncluded := make([]string, 0)
+					i.g.DB.RLock()
+					for k := range i.g.DB.LT[i.node.TypeName].Fields {
+						_, ok := d[KeyValueKey{Main: k}]
+						if !ok {
+							notIncluded = append(notIncluded, k)
+						}
+					}
+					i.g.DB.RUnlock()
+					for _, v := range notIncluded {
+						var buffer bytes.Buffer
+						buffer.WriteString(i.g.DB.Options.DBName)
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(i.node.TypeName)
+						buffer.WriteString(i.g.DB.KV.D)
+						if i.currentDirection == "->" {
+							buffer.Write(ka[3])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[4])
+						} else {
+							buffer.Write(ka[4])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[3])
+						}
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(v)
+						item, err := i.txn.Get(buffer.Bytes())
+						if err != nil && err != badger.ErrKeyNotFound {
+							errs = append(errs, err)
+						}
+						if item != nil {
+							val, err := item.ValueCopy(nil)
+							if err != nil {
+								errs = append(errs, err)
+							} else {
+								d[KeyValueKey{Main: v}] = val
+							}
+						}
+					}
+					d[KeyValueKey{Main: "FROM"}] = ka[3]
+					d[KeyValueKey{Main: "TO"}] = ka[4]
+					a = d
+				}
+
+			}
+
+			i.iterator.Next()
+		}
+	}
+	return
+}
+func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListList, errs []error, loaded bool) {
+	errs = make([]error, 0)
+
+	switch i.node.Direction {
+	case "->", "<-":
+		for !loaded {
+			d := make(map[KeyValueKey][]byte)
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
+				loaded = false
+				return
+			}
+			item := i.iterator.Item()
+			key := item.KeyCopy(nil)
+			ka := bytes.Split(key, []byte(i.g.DB.KV.D))
+			failed := true
+			if len(i.node.Instructions) < 1 {
+				failed = false
+			}
+			for key, in1 := range i.node.Instructions {
+				var fieldType FieldType
+				i.g.DB.RLock()
+				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				if !ok {
+					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
+					i.iterator.Close()
+					i.g.DB.RUnlock()
+					return
+				}
+				fieldType = i.g.DB.FT[va.FieldType]
+				i.g.DB.RUnlock()
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				if i.node.Direction == "->" {
+					buffer.Write(ka[3])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[4])
+				} else {
+					buffer.Write(ka[4])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[3])
+				}
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(key)
+				item2, err := i.txn.Get(buffer.Bytes())
+				if err != nil && err == badger.ErrKeyNotFound {
+				} else if err != nil && err != badger.ErrKeyNotFound {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					errs = append(errs, err)
+					i.iterator.Close()
+					return
+				} else if err == nil && item2 != nil {
+					var val []byte
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							errs = append(errs, err)
+							return
+						}
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							errs = append(errs, err)
+							i.iterator.Close()
+							return
+						}
+						if !ok {
+							failed = true
+							break
+						}
+					}
+					if !failed {
+						if i.node.saveName != "" {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
+				}
+
+			}
+			if !failed {
+				loaded = true
+				if i.node.saveName == "" {
+					b = LinkListList{ka[3], ka[4]}
+				} else {
+					notIncluded := make([]string, 0)
+					i.g.DB.RLock()
+					for k := range i.g.DB.LT[i.node.TypeName].Fields {
+						_, ok := d[KeyValueKey{Main: k}]
+						if !ok {
+							notIncluded = append(notIncluded, k)
+						}
+					}
+					i.g.DB.RUnlock()
+					for _, v := range notIncluded {
+						var buffer bytes.Buffer
+						buffer.WriteString(i.g.DB.Options.DBName)
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(i.node.TypeName)
+						buffer.WriteString(i.g.DB.KV.D)
+						if i.node.Direction == "->" {
+							buffer.Write(ka[3])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[4])
+						} else {
+							buffer.Write(ka[4])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[3])
+						}
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(v)
+						item, err := i.txn.Get(buffer.Bytes())
+						if err != nil && err != badger.ErrKeyNotFound {
+							errs = append(errs, err)
+							loaded = false
+							return
+						}
+						if item != nil {
+							val, err := item.ValueCopy(nil)
+							if err != nil {
+								errs = append(errs, err)
+							} else {
+								d[KeyValueKey{Main: v}] = val
+							}
+						}
+					}
+					d[KeyValueKey{Main: "FROM"}] = ka[3]
+					d[KeyValueKey{Main: "TO"}] = ka[4]
+					a = d
+				}
+
+			}
+
+			i.iterator.Next()
+		}
+	case "-":
+		//i.iterator.Next()
+		for !loaded {
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "->" {
+				i.currentDirection = "<-"
+				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED-" + i.g.DB.KV.D + string(i.from)
+				opt := badger.DefaultIteratorOptions
+				opt.Prefix = []byte(i.prefix)
+				opt.PrefetchSize = 20
+				opt.PrefetchValues = false
+				i.iterator = i.txn.NewIterator(opt)
+				i.iterator.Seek([]byte(i.prefix))
+			}
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "<-" {
+				loaded = false
+				return
+			}
+			d := make(map[KeyValueKey][]byte)
+			item := i.iterator.Item()
+			key := item.KeyCopy(nil)
+			ka := bytes.Split(key, []byte(i.g.DB.KV.D))
+			failed := true
+			if len(i.node.Instructions) < 1 {
+				failed = false
+			}
+			for key, in1 := range i.node.Instructions {
+				var fieldType FieldType
+				i.g.DB.RLock()
+				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				if !ok {
+					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
+					i.iterator.Close()
+					i.g.DB.RUnlock()
+					return
+				}
+				fieldType = i.g.DB.FT[va.FieldType]
+				i.g.DB.RUnlock()
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				if i.currentDirection == "->" {
+					buffer.Write(ka[3])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[4])
+				} else {
+					buffer.Write(ka[4])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(ka[3])
+				}
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(key)
+				item2, err := i.txn.Get(buffer.Bytes())
+				if err != nil && err == badger.ErrKeyNotFound {
+				} else if err != nil && err != badger.ErrKeyNotFound {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					errs = append(errs, err)
+					i.iterator.Close()
+					return
+				} else if err == nil && item2 != nil {
+					var val []byte
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							errs = append(errs, err)
+							return
+						}
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							errs = append(errs, err)
+							i.iterator.Close()
+							return
+						}
+						if !ok {
+							failed = true
+							break
+						}
+					}
+					if !failed {
+						if i.node.saveName != "" {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
+				}
+
+			}
+			if !failed {
+				loaded = true
+				if i.node.saveName == "" {
+					b = LinkListList{ka[3], ka[4]}
+				} else {
+					notIncluded := make([]string, 0)
+					i.g.DB.RLock()
+					for k := range i.g.DB.LT[i.node.TypeName].Fields {
+						_, ok := d[KeyValueKey{Main: k}]
+						if !ok {
+							notIncluded = append(notIncluded, k)
+						}
+					}
+					i.g.DB.RUnlock()
+					for _, v := range notIncluded {
+						var buffer bytes.Buffer
+						buffer.WriteString(i.g.DB.Options.DBName)
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(i.node.TypeName)
+						buffer.WriteString(i.g.DB.KV.D)
+						if i.currentDirection == "->" {
+							buffer.Write(ka[3])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[4])
+						} else {
+							buffer.Write(ka[4])
+							buffer.WriteString(i.g.DB.KV.D)
+							buffer.Write(ka[3])
+						}
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.WriteString(v)
+						item, err := i.txn.Get(buffer.Bytes())
+						if err != nil && err != badger.ErrKeyNotFound {
+							errs = append(errs, err)
+						}
+						if item != nil {
+							val, err := item.ValueCopy(nil)
+							if err != nil {
+								errs = append(errs, err)
+							} else {
+								d[KeyValueKey{Main: v}] = val
+							}
+						}
+					}
+					d[KeyValueKey{Main: "FROM"}] = ka[3]
+					d[KeyValueKey{Main: "TO"}] = ka[4]
+					a = d
+				}
+
+			}
+
+			i.iterator.Next()
+		}
+
+	}
+	return
+}
+func (i *iteratorLoaderGraphLink) close() {
+	if i.iterator != nil {
+		i.iterator.Close()
+	}
+}
+
+type iteratorLoaderGraphObject struct {
+	node     *NodeQuery
+	g        *GetterFactory
+	txn      *badger.Txn
+	gottenID bool
+}
+
+func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b []byte, errs []error, success bool) {
+	if i.node.saveName != "" {
+		a = make(map[KeyValueKey][]byte)
+	}
+	errs = make([]error, 0)
+	ins, ok := i.node.Instructions["ID"]
+	if ok {
+		for _, query := range ins {
+			if query.action == "==" {
+
+				queryID, ok := query.param.(uint64)
+				if !ok {
+					errs = append(errs, errors.New("Invadid ID provided in node query expected uint64 got"))
+					return
+				}
+				i.g.DB.RLock()
+				toGotten, err := i.g.DB.FT["uint64"].Get(to)
+				i.g.DB.RUnlock()
+				if err != nil {
+					errs = append(errs, err)
+					return
+				}
+				if toGotten != queryID {
+					success = false
+					return
+				}
+				success = true
+				if i.node.saveName == "" {
+					b = to
+				} else {
+					obj, err := i.g.getKeysWithValue(i.txn, i.g.DB.Options.DBName, i.node.TypeName, string(to))
+					if len(err) > 0 {
+						errs = append(errs, err...)
+					}
+					if obj != nil {
+						obj[KeyValueKey{Main: "ID"}] = to
+						a = obj
+					}
+				}
+				return
+			}
+
+		}
+	}
+
+	failed := false
+	for key, in1 := range i.node.Instructions {
+		var fieldType FieldType
+		i.g.DB.RLock()
+		va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+		if !ok {
+			errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
+			i.g.DB.RUnlock()
+			return
+		}
+		fieldType = i.g.DB.FT[va.FieldType]
+		i.g.DB.RUnlock()
+		var buffer bytes.Buffer
+		buffer.WriteString(i.g.DB.Options.DBName)
+		buffer.WriteString(i.g.DB.KV.D)
+		buffer.WriteString(i.node.TypeName)
+		buffer.WriteString(i.g.DB.KV.D)
+		buffer.Write(to)
+		buffer.WriteString(i.g.DB.KV.D)
+		buffer.WriteString(key)
+		item2, err := i.txn.Get(buffer.Bytes())
+		if err != nil && err == badger.ErrKeyNotFound {
+		} else if err != nil && err != badger.ErrKeyNotFound {
+			Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+			errs = append(errs, err)
+			return
+		} else if err == nil && item2 != nil {
+			var val []byte
+			for _, in2 := range in1 {
+				rawParam, err := fieldType.Set(in2.param)
+				if err != nil {
+					errs = append(errs, err)
+					return
+				}
+				val, err = item2.ValueCopy(nil)
+				if err != nil {
+					Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+					errs = append(errs, err)
+					return
+				}
+				ok, err := fieldType.Compare(in2.action, val, rawParam)
+				if err != nil {
+					errs = append(errs, err)
+					return
+				}
+				if !ok {
+					failed = true
+					break
+				}
+			}
+			if !failed {
+				if i.node.saveName != "" {
+					a[KeyValueKey{Main: key}] = val
+				}
+			}
+		}
+
+	}
+	if !failed {
+		success = true
+		if i.node.saveName != "" {
+			notIncluded := make([]string, 0)
+			i.g.DB.RLock()
+			for k := range i.g.DB.OT[i.node.TypeName].Fields {
+				_, ok := a[KeyValueKey{Main: k}]
+				if !ok {
+					notIncluded = append(notIncluded, k)
+				}
+			}
+			i.g.DB.RUnlock()
+			for _, v := range notIncluded {
+				var buffer bytes.Buffer
+				buffer.WriteString(i.g.DB.Options.DBName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(i.node.TypeName)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.Write(to)
+				buffer.WriteString(i.g.DB.KV.D)
+				buffer.WriteString(v)
+				item, err := i.txn.Get(buffer.Bytes())
+				if err != nil && err != badger.ErrKeyNotFound {
+					errs = append(errs, err)
+				}
+				if item != nil {
+					val, err := item.ValueCopy(nil)
+					if err != nil {
+						errs = append(errs, err)
+					} else {
+						a[KeyValueKey{Main: v}] = val
+					}
+				}
+			}
+
+			a[KeyValueKey{Main: "ID"}] = to
+		} else {
+			b = to
+		}
+
+	} else {
+		success = false
+	}
+
+	return
+}
+
+type holder struct {
+	query              *NodeQuery
+	first              *iteratorLoaderGraphStart
+	link               *iteratorLoaderGraphLink
+	object             *iteratorLoaderGraphObject
+	dataObject         *[]map[KeyValueKey][]byte
+	idsObject          *[][]byte
+	idsLink            *[]LinkListList
+	currentObject      map[KeyValueKey][]byte
+	currentIDObject    []byte
+	currentIDLink      LinkListList
+	loadedCurrent      bool
+	sentCurrentToArray bool
+	changeCurrent      bool
+	done               bool
+	loaded             int
+}
+
+//GetterGraphStraight ..
+//action: 'objects'
+//params... NodeQuery (NodeQuery)
+//placesses objectLists found in node query [0] in variable [1]
+func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+	skiped := 0
+	count := 0
+	hold := make([]holder, len(qData))
+	defer func() {
+		for _, vv := range hold {
+			if vv.first != nil {
+				vv.first.close()
+			}
+			if vv.link != nil {
+				vv.link.close()
+			}
+		}
+	}()
+
+	for i, v := range qData {
+		n := v.(NodeQuery)
+		h := holder{}
+		h.query = &n
+		if i == (len(qData) - 1) {
+			if h.query.limit == 0 {
+				h.query.limit = 100
+			}
+		}
+		j := i + 1
+		if j == 1 {
+			s := iteratorLoaderGraphStart{}
+			s.setup(g, h.query, txn)
+			h.first = &s
+			if h.query.saveName != "" {
+				m := make([]map[KeyValueKey][]byte, 0)
+				h.dataObject = &m
+			} else {
+				m := make([][]byte, 0)
+				h.idsObject = &m
+			}
+		}
+		if j%2 == 0 {
+			s := iteratorLoaderGraphLink{node: h.query, g: g, txn: txn}
+			h.link = &s
+			if h.query.saveName != "" {
+				m := make([]map[KeyValueKey][]byte, 0)
+				h.dataObject = &m
+			} else {
+				m := make([]LinkListList, 0)
+				h.idsLink = &m
+			}
+		}
+		if j%2 != 0 && i != 1 {
+			s := iteratorLoaderGraphObject{h.query, g, txn, false}
+			h.object = &s
+			if h.query.saveName != "" {
+				m := make([]map[KeyValueKey][]byte, 0)
+				h.dataObject = &m
+			} else {
+				m := make([][]byte, 0)
+				h.idsObject = &m
+			}
+		}
+
+		hold[i] = h
+	}
+
+	do := true
+	position := 0
+	down := true
+	last := 0
+
+	for do {
+		// deal with the first node
+		if position == 0 {
+			//execution came up so change current and if successfull go back down if not call it a day
+			Log.Print("-------------------------------- " + strconv.Itoa(position+1))
+			obj, byt, loaded, errs := hold[position].first.next2()
+			if len(errs) > 0 {
+				ret.Errors = append(ret.Errors, errs...)
+				return
+			}
+			if loaded {
+				if hold[position].first.node.saveName == "" {
+					hold[position].currentIDObject = byt
+
+					f, _ := binary.Uvarint(byt)
+					Log.Print(" 1111 " + strconv.Itoa(int(f)))
+				} else {
+					hold[position].currentObject = obj
+				}
+				position = position + 1
+				down = true
+				hold[position].sentCurrentToArray = false
+			} else {
+				do = false // just quit because without a new first object the query is as good as done
+				Log.Print("--------------------------Node Start (Stop Execution)")
+			}
+		}
+
+		if ((position + 1) % 2) == 0 { // if it is a link
+
+			if down {
+				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				var prevCur []byte
+				prevPosition := position - 1
+				if hold[prevPosition].query.saveName == "" {
+					prevCur = hold[prevPosition].currentIDObject
+				} else {
+					prevCur = hold[prevPosition].currentObject[KeyValueKey{Main: "ID"}]
+				}
+				if prevCur == nil {
+					ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(prevPosition)+", ID: "+string(prevCur)))
+					return
+				}
+				obj, link, errs, loaded := hold[position].link.get2(prevCur)
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				if loaded {
+					if hold[position].query.saveName == "" {
+						hold[position].currentIDLink = link
+
+						f, _ := binary.Uvarint(link.FROM)
+						t, _ := binary.Uvarint(link.TO)
+						Log.Print(strconv.Itoa(int(f)) + " ++++ " + hold[position].link.currentDirection + " ++++ " + strconv.Itoa(int(t)))
+					} else {
+						hold[position].currentObject = obj
+					}
+					position = position + 1
+					down = true
+					hold[position].sentCurrentToArray = false
+				} else {
+					// Unable to get even one object so go to the previous node to change prevCur
+					position = position - 1
+					down = false
+				}
+			} else {
+				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				obj, link, errs, loaded := hold[position].link.more2()
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				if loaded {
+					if hold[position].query.saveName == "" {
+						hold[position].currentIDLink = link
+
+						f, _ := binary.Uvarint(link.FROM)
+						t, _ := binary.Uvarint(link.TO)
+
+						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+					} else {
+						hold[position].currentObject = obj
+					}
+					position = position + 1
+					down = true
+				} else {
+					// Unable to get even one object so go to the previous node to change prevCur
+					position = position - 1
+					down = false
+				}
+			}
+		}
+
+		if ((position+1)%2) != 0 && position != 0 && position != (len(hold)-1) { // if it an object query that is not the first and the last
+			if down {
+				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				var prevCur []byte
+				prevPosition := position - 1
+				if hold[prevPosition].query.saveName == "" {
+					prevCur = hold[prevPosition].currentIDLink.TO
+				} else {
+					prevCur = hold[prevPosition].currentObject[KeyValueKey{Main: "TO"}]
+				}
+				if prevCur == nil {
+					ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(prevPosition)+", ID: "+string(prevCur)))
+					return
+				}
+				obj, byt, errs, loaded := hold[position].object.get(prevCur)
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				if loaded {
+					if hold[position].query.saveName == "" {
+						hold[position].currentIDObject = byt
+					} else {
+						hold[position].currentObject = obj
+						f, _ := binary.Uvarint(obj[KeyValueKey{Main: "ID"}])
+						Log.Print(" ++++ " + strconv.Itoa(int(f)))
+					}
+					position = position + 1
+					down = true
+					hold[position].sentCurrentToArray = false
+				} else {
+					// Unable to get even one object so go to the previous node to change prevCur
+					position = position - 1
+					down = false
+				}
+			} else { // there is no point waiting here if the current is no longer valid we go up to get a new one
+				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				Log.Print(" ____ ")
+				position = position - 1
+				down = false
+			}
+		}
+
+		if position == (len(hold) - 1) { // if the last query, that is definitely an object query
+			Log.Print("----------------------------- " + strconv.Itoa(position+1))
+			last++
+			var prevCur []byte
+			prevPosition := position - 1
+			if hold[prevPosition].query.saveName == "" {
+				prevCur = hold[prevPosition].currentIDLink.TO
+			} else {
+				prevCur = hold[prevPosition].currentObject[KeyValueKey{Main: "TO"}]
+			}
+			if prevCur == nil {
+				ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(prevPosition)+", ID: "+string(prevCur)))
+				return
+			}
+			obj, byt, errs, loaded := hold[position].object.get(prevCur)
+			if len(errs) > 0 {
+				ret.Errors = append(ret.Errors, errs...)
+				return
+			}
+			if loaded {
+				//log.Print("yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy ", last)
+				if hold[position].query.saveName == "" {
+					hold[position].currentIDObject = byt
+					f, _ := binary.Uvarint(byt)
+					Log.Print(" ++++ " + strconv.Itoa(int(f)))
+				} else {
+					hold[position].currentObject = obj
+				}
+				if hold[position].query.skip > skiped {
+					skiped++
+				} else {
+					for _, ele := range hold {
+
+						if !ele.sentCurrentToArray {
+							if ele.query.Direction == "" && ele.query.saveName != "" { // it is an object query and saved
+								*ele.dataObject = append(*ele.dataObject, ele.currentObject)
+								ele.sentCurrentToArray = true
+							} else if ele.query.Direction != "" && ele.query.saveName != "" { // it is a link query and saved
+								*ele.dataObject = append(*ele.dataObject, ele.currentObject)
+								ele.sentCurrentToArray = true
+							} else if ele.query.Direction == "" && ele.query.saveName == "" { // it is an object query and not saved
+								*ele.idsObject = append(*ele.idsObject, ele.currentIDObject)
+								ele.sentCurrentToArray = true
+							} else if ele.query.Direction != "" && ele.query.saveName == "" { // it is a link query and not saved
+								*ele.idsLink = append(*ele.idsLink, ele.currentIDLink)
+								ele.sentCurrentToArray = true
+							}
+						}
+					}
+
+					if hold[position].query.limit <= count {
+						do = false
+					}
+					count++
+				}
+				position = position - 1
+				down = false
+			} else {
+				position = position - 1
+				down = false
+			}
+		}
+	}
+	for _, v := range hold {
+		if v.query.saveName != "" {
+			if v.query.Direction != "" { //if it is a link
+				l := LinkList{}
+				l.LinkName = v.query.TypeName
+				l.isIds = false
+				l.Links = *v.dataObject
+				l.order.field = v.query.Sort
+				l.order.typ = v.query.SortType
+				(*data)[v.query.saveName] = &l
+			} else {
+				o := ObjectList{}
+				o.ObjectName = v.query.TypeName
+				o.isIds = false
+				o.Objects = *v.dataObject
+				o.order.field = v.query.Sort
+				o.order.typ = v.query.SortType
+				(*data)[v.query.saveName] = &o
+			}
+		}
+	}
+
 }
