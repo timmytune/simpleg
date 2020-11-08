@@ -220,7 +220,7 @@ func GetUserOption() ObjectTypeOptions {
 	uo.Fields["lastName"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.String("lastName", 3, 20, true, true, false)}
 	uo.Fields["email"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.Email("email", true)}
 	uo.Fields["active"] = FieldOptions{Indexed: false, FieldType: "bool", Validate: nil}
-	uo.Fields["age"] = FieldOptions{Indexed: true, FieldType: "int64", Validate: fv.Int64("age", 10, 28)}
+	uo.Fields["age"] = FieldOptions{Indexed: false, FieldType: "int64", Validate: fv.Int64("age", 10, 28)}
 
 	return uo
 }
@@ -233,21 +233,7 @@ func GetPostOption() ObjectTypeOptions {
 	}
 	po.Get = func(m map[KeyValueKey][]byte, db *DB) (interface{}, []error) {
 		e := make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
+
 		db.RLock()
 		defer db.RUnlock()
 		p := Post{DB: db}

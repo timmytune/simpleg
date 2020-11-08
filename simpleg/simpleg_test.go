@@ -155,7 +155,7 @@ func TestAll(t *testing.T) {
 	elapsed = time.Since(start)
 	Log.Printf("++++ Test Get Object took %s", elapsed)
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(1 * time.Second)
 	//-----------------------------------------Get objects with raw query
 	start = time.Now()
 	q := db.Query()
@@ -312,11 +312,11 @@ func TestAll(t *testing.T) {
 		time.Sleep(1 * time.Second)
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	n6 := NodeQuery{}
 	q6 := db.Query()
-	n6.Name("da").Link("Friend", "->").Limit(100).Q("FROM", "==", uint64(2))
+	n6.Name("da").Link("Friend", "->").Limit(5).Q("FROM", "==", uint64(2))
 	q6.Do("link", n6)
 	ret6 := q6.Return("array", "da")
 	if len(ret6.Errors) > 0 {
@@ -327,20 +327,64 @@ func TestAll(t *testing.T) {
 
 	n7 := NodeQuery{}
 	q7 := db.Query()
-	n7.Name("da").Link("Friend", "-").Limit(100).Q("FROM", "==", uint64(10))
-	q7.Do("link", n6)
-	ret7 := q6.Return("array", "da")
+	n7.Name("da").Link("Friend", "<-").Limit(100).Q("FROM", "==", uint64(10))
+	q7.Do("link", n7)
+	ret7 := q7.Return("array", "da")
 	if len(ret7.Errors) > 0 {
 		t.Error("simpleg.Get Failed Test get Friend:", ret7.Errors)
 	} else {
 		log.Print("---- 6666 ---- ", len(ret7.Data.([]interface{})))
 	}
 
+	startUser1 := NodeQuery{}
+	startUser1.Object("User").Name("first").Q("age", ">", int64(17))
+
+	friends1 := NodeQuery{}
+	friends1.Link("Friend", "-").Name("link")
+
+	mutual1 := NodeQuery{}
+	mutual1.Object("User").Q("ID", "==", uint64(2)).Name("mutual")
+
+	query1 := db.Query()
+	query1.Do("graph.p", startUser1, friends1, mutual1)
+	retQuery1 := query1.Return("map", "mutual", "link", "first")
+	if len(retQuery1.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", retQuery1.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", retQuery1)
+	} else {
+		//log.Print("---- 8888.1 ---- ", retQuery.Data)
+		log.Print("---- 8888.1 ---- ", len(retQuery1.Data.(map[string]interface{})["mutual"].([]interface{})))
+		log.Print("---- 8888.2 ---- ", len(retQuery1.Data.(map[string]interface{})["link"].([]interface{})))
+		log.Print("---- 8888.3 ---- ", len(retQuery1.Data.(map[string]interface{})["first"].([]interface{})))
+	}
+
+	startUser1 = NodeQuery{}
+	startUser1.Object("User").Name("first").Q("age", ">", int64(17))
+
+	friends1 = NodeQuery{}
+	friends1.Link("Friend", "-").Name("link")
+
+	mutual1 = NodeQuery{}
+	mutual1.Object("User").Q("ID", "==", uint64(2)).Name("mutual")
+
+	query1 = db.Query()
+	query1.Do("graph.p", mutual1, friends1, startUser1)
+	retQuery1 = query1.Return("map", "mutual", "link", "first")
+	if len(retQuery1.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", retQuery1.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", retQuery1)
+	} else {
+		//log.Print("---- 8888.1 ---- ", retQuery.Data)
+		log.Print("---- 8888.1 ---- ", len(retQuery1.Data.(map[string]interface{})["mutual"].([]interface{})))
+		log.Print("---- 8888.2 ---- ", len(retQuery1.Data.(map[string]interface{})["link"].([]interface{})))
+		log.Print("---- 8888.3 ---- ", len(retQuery1.Data.(map[string]interface{})["first"].([]interface{})))
+	}
+
 	startUser := NodeQuery{}
-	startUser.Object("User").Q("ID", "==", uint64(2))
+	startUser.Object("User").Q("age", ">", int64(17)).Name("first")
 
 	friends := NodeQuery{}
-	friends.Link("Friend", "-")
+	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)
 
 	mutual := NodeQuery{}
 	mutual.Object("User").Name("mutual")
@@ -349,15 +393,77 @@ func TestAll(t *testing.T) {
 	friends2.Link("Friend", "-")
 
 	endUser := NodeQuery{}
-	endUser.Object("User").Q("ID", "==", uint64(10)).Limit(100)
+	endUser.Object("User").Q("ID", "==", uint64(10)).Limit(100).Name("last")
 
 	query := db.Query()
 	query.Do("graph.p", startUser, friends, mutual, friends2, endUser)
-	retQuery := query.Return("map", "mutual")
+	retQuery := query.Return("map", "mutual", "link", "last", "first")
 	if len(retQuery.Errors) > 0 {
 		Log.Printf("---- Test Get Link had the following errors %s", retQuery.Errors)
 		t.Error("simpleg.Get Failed Test get Friend:", retQuery)
 	} else {
-		log.Print("---- 8888 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
+		//log.Print("---- 8888.1 ---- ", retQuery.Data)
+		log.Print("---- 8888.1 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
+		log.Print("---- 8888.2 ---- ", len(retQuery.Data.(map[string]interface{})["link"].([]interface{})))
+		log.Print("---- 8888.3 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
+		log.Print("---- 8888.4 ---- ", len(retQuery.Data.(map[string]interface{})["last"].([]interface{})))
+	}
+
+	startUser = NodeQuery{}
+	startUser.Object("User").Q("age", ">", int64(17)).Name("first")
+
+	friends = NodeQuery{}
+	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)
+
+	mutual = NodeQuery{}
+	mutual.Object("User").Name("mutual")
+
+	friends2 = NodeQuery{}
+	friends2.Link("Friend", "-")
+
+	endUser = NodeQuery{}
+	endUser.Object("User").Q("ID", "==", uint64(10)).Limit(100).Name("last")
+
+	query = db.Query()
+	query.Do("graph.p", endUser, friends2, mutual, friends, startUser)
+	retQuery = query.Return("map", "mutual", "link", "last", "first")
+	if len(retQuery.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", retQuery.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", retQuery)
+	} else {
+		//log.Print("---- 8888.1 ---- ", retQuery.Data)
+		log.Print("---- 8888.1 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
+		log.Print("---- 8888.2 ---- ", len(retQuery.Data.(map[string]interface{})["link"].([]interface{})))
+		log.Print("---- 8888.3 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
+		log.Print("---- 8888.4 ---- ", len(retQuery.Data.(map[string]interface{})["last"].([]interface{})))
+	}
+
+	startUser = NodeQuery{}
+	startUser.Object("User").Q("age", ">", int64(17)).Name("first")
+
+	friends = NodeQuery{}
+	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)
+
+	mutual = NodeQuery{}
+	mutual.Object("User").Name("mutual")
+
+	friends2 = NodeQuery{}
+	friends2.Link("Friend", "-")
+
+	endUser = NodeQuery{}
+	endUser.Object("User").Q("ID", "==", uint64(9)).Limit(100).Name("last")
+
+	query = db.Query()
+	query.Do("graph.s", endUser, friends2, mutual, friends, startUser)
+	retQuery = query.Return("map", "mutual", "link", "last", "first")
+	if len(retQuery.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", retQuery.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", retQuery)
+	} else {
+		//log.Print("---- 8888.1 ---- ", retQuery.Data)
+		log.Print("---- 8888.1 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
+		log.Print("---- 8888.2 ---- ", len(retQuery.Data.(map[string]interface{})["link"].([]interface{})))
+		log.Print("---- 8888.3 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
+		log.Print("---- 8888.4 ---- ", len(retQuery.Data.(map[string]interface{})["last"].([]interface{})))
 	}
 }

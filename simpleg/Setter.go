@@ -2,11 +2,8 @@ package simpleg
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
-	"log"
 	"runtime/debug"
-	"strconv"
 
 	badger "github.com/dgraph-io/badger/v2"
 )
@@ -170,16 +167,8 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 	}
 	data, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, typ, "INDEXED+", string(to), string(from)))
 	// if opposites are the same just use prexisting link
-	r := ""
-	if data != nil {
-		q, _ := data.ValueCopy(nil)
-		g, _ := binary.Uvarint(q)
-		r = strconv.Itoa(int(g))
-	}
 
-	log.Print("0000000000000000000000000000000000000 " + strconv.Itoa(lt.Type) + " == " + r)
 	if data != nil && (lt.Type == 1 || lt.Type == 2) {
-		log.Print("============================== " + strconv.Itoa(lt.Type))
 		h := to
 		to = from
 		from = h

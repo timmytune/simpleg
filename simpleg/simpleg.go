@@ -173,21 +173,29 @@ func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 			}
 		}
 	}()
+	d1, ok := d[0].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in Get function"))
+	}
 	switch ins {
 	case "object.single":
 		n := NodeQuery{}
-		n.Name("da").Object(d[0].(string)).Q("ID", "==", d[1])
+		n.Name("da").Object(d1).Q("ID", "==", d[1])
 		q.Do("object", n)
 		ret = q.Return("single", "da", 0)
 	case "object.new":
-		q.Do("object.new", d[0].(string))
+		q.Do("object.new", d1)
 		ret = q.Return("skip")
 	case "link.new":
-		q.Do("link.new", d[0].(string))
+		q.Do("link.new", d1)
 		ret = q.Return("skip")
 	case "link.single":
+		d2, ok := d[1].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in Get function"))
+		}
 		n := NodeQuery{}
-		n.Name("da").Link(d[0].(string), d[1].(string)).Q("FROM", "==", d[2]).Q("TO", "==", d[3])
+		n.Name("da").Link(d1, d2).Q("FROM", "==", d[2]).Q("TO", "==", d[3])
 		q.Do("link", n)
 		ret = q.Return("single", "da", 0)
 	default:

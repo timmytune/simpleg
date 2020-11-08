@@ -37,6 +37,9 @@ type NodeQuery struct {
 }
 
 func (g *NodeQuery) Object(typ string) *NodeQuery {
+	if g.limit == 0 {
+		g.limit = 100
+	}
 	if g.Instructions == nil {
 		g.Instructions = make(map[string][]NodeQueryInstruction)
 	}
@@ -44,6 +47,9 @@ func (g *NodeQuery) Object(typ string) *NodeQuery {
 	return g
 }
 func (g *NodeQuery) Link(typ string, direction string) *NodeQuery {
+	if g.limit == 0 {
+		g.limit = 100
+	}
 	if g.Instructions == nil {
 		g.Instructions = make(map[string][]NodeQueryInstruction)
 	}
@@ -73,6 +79,9 @@ func (g *NodeQuery) Name(name string) *NodeQuery {
 func (g *NodeQuery) Q(fieldName string, action string, param interface{}) *NodeQuery {
 	if g.Instructions == nil {
 		g.Instructions = make(map[string][]NodeQueryInstruction)
+	}
+
+	if g.index == "" {
 		g.index = fieldName
 	}
 	_, ok := g.Instructions[fieldName]
@@ -876,7 +885,8 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 	}
 
 	if ok && !ok2 {
-
+		skipped := 0
+		count := 0
 		var from uint64
 		for _, query := range ins {
 			if query.action == "==" {
@@ -942,9 +952,19 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 						}
 
 						if obj != nil {
-							obj[KeyValueKey{Main: "FROM"}] = rawFrom
-							obj[KeyValueKey{Main: "TO"}] = kArray[4]
-							ret.Links = append(ret.Links, obj)
+							if node.skip > skipped {
+								skipped++
+							} else {
+								obj[KeyValueKey{Main: "FROM"}] = rawFrom
+								obj[KeyValueKey{Main: "TO"}] = kArray[4]
+								ret.Links = append(ret.Links, obj)
+								count++
+							}
+							if count >= node.limit {
+								iterator.Close()
+								return &ret, errs
+							}
+
 						}
 					}
 				}
@@ -954,6 +974,11 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 			errs = append(errs, errors.New("Invalid ID privided in Node query"))
 		}
 
+	}
+
+	if !ok && ok2 {
+		errs = append(errs, errors.New("You can't run a nodequery for links with field 'TO' without field 'FROM' instead run the query with a FROM and direction '<-'"))
+		return &ret, errs
 	}
 
 	var prefix []byte
@@ -1155,10 +1180,10 @@ func (g *GetterFactory) Run() {
 				job.Ret <- ret
 				close(job.Ret)
 			}
-			if txn != nil {
-				txn.Discard()
-				txn = nil
-			}
+			// if txn != nil {
+			// 	txn.Discard()
+			// 	txn = nil
+			// }
 			g.Run()
 		}
 	}()
@@ -1188,6 +1213,8 @@ func (g *GetterFactory) Run() {
 			case "link":
 				GetterLinks(g, txn, &data, &job, val.Params, &ret)
 			case "graph.p":
+				GetterGraphPartern(g, txn, &data, &job, val.Params, &ret)
+			case "graph.s":
 				GetterGraphStraight(g, txn, &data, &job, val.Params, &ret)
 			default:
 				ret.Errors = append(ret.Errors, errors.New("Invalid Istruction in GetterFactory: "+val.Action))
@@ -1243,7 +1270,11 @@ func GetterObjects(g *GetterFactory, txn *badger.Txn, data *map[string]interface
 func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
 
 	if q.ReturnType == 1 {
-		da := (*data)[qData[0].(string)]
+		d, ok := qData[0].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in return function"))
+		}
+		da := (*data)[d]
 		switch da.(type) {
 		case *ObjectList:
 			d2 := da.(*ObjectList)
@@ -1253,7 +1284,11 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 					ret.Errors = append(ret.Errors, errs...)
 				}
 				if r != nil && len(r) > 0 {
-					ret.Data = r[qData[1].(int)]
+					d2 := qData[1].(int)
+					if !ok {
+						ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in return function"))
+					}
+					ret.Data = r[d2]
 				}
 			}
 		case *LinkList:
@@ -1264,16 +1299,29 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 					ret.Errors = append(ret.Errors, errs...)
 				}
 				if r != nil && len(r) > 0 {
-					ret.Data = r[qData[1].(int)]
+					d2 := qData[1].(int)
+					if !ok {
+						ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in return function"))
+					}
+					ret.Data = r[d2]
 				}
 			}
 		default:
-			ret.Data = (*data)[qData[0].(string)]
+			d2, ok := qData[0].(string)
+			if !ok {
+				ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in return function"))
+			}
+			ret.Data = (*data)[d2]
 
 		}
 	}
 	if q.ReturnType == 2 {
-		da := (*data)[qData[0].(string)]
+		d3, ok := qData[0].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in return function"))
+		}
+		da := (*data)[d3]
+
 		switch da.(type) {
 		case *ObjectList:
 			d2 := da.(*ObjectList)
@@ -1303,7 +1351,12 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 	if q.ReturnType == 3 {
 		returned := make(map[string]interface{})
 		for _, val := range qData {
-			da, ok := (*data)[val.(string)]
+			do, ok := val.(string)
+			if !ok {
+				ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in return function"))
+			}
+
+			da, ok := (*data)[do]
 			if ok {
 				switch da.(type) {
 				case *ObjectList:
@@ -1314,7 +1367,7 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 							ret.Errors = append(ret.Errors, errs...)
 						}
 						if r != nil {
-							returned[val.(string)] = r
+							returned[do] = r
 						}
 					}
 				case *LinkList:
@@ -1325,12 +1378,14 @@ func GetterReturn(g *GetterFactory, txn *badger.Txn, data *map[string]interface{
 							ret.Errors = append(ret.Errors, errs...)
 						}
 						if r != nil {
-							returned[val.(string)] = r
+							returned[do] = r
 						}
 					}
 				default:
-					returned[val.(string)] = (*data)[val.(string)]
+					returned[do] = (*data)[do]
 				}
+			} else {
+				ret.Errors = append(ret.Errors, errors.New("A return value expected is not returned -'"+do+"'-"))
 			}
 
 		}
@@ -1408,6 +1463,11 @@ type iteratorLoaderGraphStart struct {
 func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn *badger.Txn) []error {
 	obj := node.TypeName
 	field := node.index
+
+	if field == "ID" {
+		field = ""
+	}
+
 	inst := node.Instructions[node.index]
 	var errs []error
 	g.DB.RLock()
@@ -1417,16 +1477,17 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 	}
 	i.indexed = vaa.Indexed
 	i.fieldType = g.DB.FT[g.DB.OT[obj].Fields[field].FieldType]
+	g.DB.RUnlock()
 	i.field = field
 	i.txn = txn
 	i.obj = obj
 	i.g = g
-	g.DB.RUnlock()
+
 	i.node = node
 	index := ""
-	delete(node.Instructions, node.index)
-	//i.iterator = txn.NewIterator()
 
+	delete(node.Instructions, field)
+	//i.iterator = txn.NewIterator()
 	if i.indexed {
 		for _, d := range inst {
 			val, ins, err := i.fieldType.CompareIndexed(d.action, d.param)
@@ -1553,7 +1614,14 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				r[KeyValueKey{Main: string(kArray[2])}] = kArray[3]
 				r[KeyValueKey{Main: "ID"}] = kArray[4]
 			}
-		} else {
+		} else if !i.indexed && i.field == "" {
+			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
+				return r, false, nil
+			}
+			notValid = false
+			r[KeyValueKey{Main: "ID"}] = kArray[3]
+
+		} else if !i.indexed && i.field != "" {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
 				return r, false, nil
 			}
@@ -1571,7 +1639,6 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
 			} else if item2 == nil {
-				//i.iterator.Next()
 			} else {
 				v, err = item2.ValueCopy(v)
 				if err != nil {
@@ -1579,15 +1646,18 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 					return nil, false, err
 				}
 
-				boa := false
+				boa := true
 				for _, ins := range i.query {
 					rawQueryData, err := i.fieldType.Set(ins.param)
 					if err != nil {
 						return nil, false, err
 					}
-					boa, err = i.fieldType.Compare(ins.action, v, rawQueryData)
+					oa, err := i.fieldType.Compare(ins.action, v, rawQueryData)
 					if err != nil {
 						return nil, false, err
+					}
+					if !oa {
+						boa = false
 					}
 					if !boa {
 						break
@@ -1596,13 +1666,12 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				if boa {
 					notValid = false
 					others := ""
-					if len(kArray) > 4 {
-						ks := string(item2.KeyCopy(nil))
-						ksa := strings.Split(ks, i.g.DB.KV.D)
-						others = strings.Join(ksa[4:], i.g.DB.KV.D)
-					}
+					ks := string(item2.KeyCopy(nil))
+					ksa := strings.Split(ks, i.g.DB.KV.D)
+					others = strings.Join(ksa[4:], i.g.DB.KV.D)
 					r[KeyValueKey{Main: i.field, Subs: others}] = v
 					r[KeyValueKey{Main: "ID"}] = kArray[3]
+
 				}
 			}
 
@@ -1804,6 +1873,9 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 					a = d
 				}
 			}
+		} else {
+			e = append(e, errors.New("Invalid result returned from first query"))
+			return
 		}
 	}
 	return
@@ -2494,7 +2566,7 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 	for key, in1 := range i.node.Instructions {
 		var fieldType FieldType
 		i.g.DB.RLock()
-		va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+		va, ok := i.g.DB.OT[i.node.TypeName].Fields[key]
 		if !ok {
 			errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 			i.g.DB.RUnlock()
@@ -2600,40 +2672,48 @@ type holder struct {
 	first              *iteratorLoaderGraphStart
 	link               *iteratorLoaderGraphLink
 	object             *iteratorLoaderGraphObject
-	dataObject         *[]map[KeyValueKey][]byte
-	idsObject          *[][]byte
-	idsLink            *[]LinkListList
+	dataObject         map[string]map[KeyValueKey][]byte
+	idsObject          map[string]struct{}
+	idsLink            map[string]LinkListList
 	currentObject      map[KeyValueKey][]byte
 	currentIDObject    []byte
 	currentIDLink      LinkListList
-	loadedCurrent      bool
+	loadedKeys         []string
 	sentCurrentToArray bool
-	changeCurrent      bool
-	done               bool
-	loaded             int
+	skiped             int
+	count              int
 }
 
-//GetterGraphStraight ..
+//GetterGraphPartern ..
 //action: 'objects'
 //params... NodeQuery (NodeQuery)
-//placesses objectLists found in node query [0] in variable [1]
-func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
-	skiped := 0
-	count := 0
+//placesses objectLists found in  node query [0] in variable [1]
+func GetterGraphPartern(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
 	hold := make([]holder, len(qData))
 	defer func() {
-		for _, vv := range hold {
-			if vv.first != nil {
-				vv.first.close()
+		for i := range hold {
+			if hold[i].first != nil {
+				hold[i].first.close()
 			}
-			if vv.link != nil {
-				vv.link.close()
+			if hold[i].link != nil {
+				hold[i].link.close()
 			}
 		}
 	}()
+	for i := range hold {
+		if hold[i].first != nil {
+			hold[i].first.close()
+		}
+		if hold[i].link != nil {
+			hold[i].link.close()
+		}
+	}
 
 	for i, v := range qData {
-		n := v.(NodeQuery)
+		n, ok := v.(NodeQuery)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in graph.p expected Nodequery"))
+		}
 		h := holder{}
 		h.query = &n
 		if i == (len(qData) - 1) {
@@ -2647,33 +2727,33 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 			s.setup(g, h.query, txn)
 			h.first = &s
 			if h.query.saveName != "" {
-				m := make([]map[KeyValueKey][]byte, 0)
-				h.dataObject = &m
+				m := make(map[string]map[KeyValueKey][]byte)
+				h.dataObject = m
 			} else {
-				m := make([][]byte, 0)
-				h.idsObject = &m
+				m := make(map[string]struct{})
+				h.idsObject = m
 			}
 		}
 		if j%2 == 0 {
 			s := iteratorLoaderGraphLink{node: h.query, g: g, txn: txn}
 			h.link = &s
 			if h.query.saveName != "" {
-				m := make([]map[KeyValueKey][]byte, 0)
-				h.dataObject = &m
+				m := make(map[string]map[KeyValueKey][]byte)
+				h.dataObject = m
 			} else {
-				m := make([]LinkListList, 0)
-				h.idsLink = &m
+				m := make(map[string]LinkListList)
+				h.idsLink = m
 			}
 		}
 		if j%2 != 0 && i != 1 {
 			s := iteratorLoaderGraphObject{h.query, g, txn, false}
 			h.object = &s
 			if h.query.saveName != "" {
-				m := make([]map[KeyValueKey][]byte, 0)
-				h.dataObject = &m
+				m := make(map[string]map[KeyValueKey][]byte)
+				h.dataObject = m
 			} else {
-				m := make([][]byte, 0)
-				h.idsObject = &m
+				m := make(map[string]struct{})
+				h.idsObject = m
 			}
 		}
 
@@ -2683,13 +2763,12 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 	do := true
 	position := 0
 	down := true
-	last := 0
 
 	for do {
 		// deal with the first node
 		if position == 0 {
 			//execution came up so change current and if successfull go back down if not call it a day
-			Log.Print("-------------------------------- " + strconv.Itoa(position+1))
+			//Log.Print("-------------------------------- " + strconv.Itoa(position+1))
 			obj, byt, loaded, errs := hold[position].first.next2()
 			if len(errs) > 0 {
 				ret.Errors = append(ret.Errors, errs...)
@@ -2698,25 +2777,22 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 			if loaded {
 				if hold[position].first.node.saveName == "" {
 					hold[position].currentIDObject = byt
-
-					f, _ := binary.Uvarint(byt)
-					Log.Print(" 1111 " + strconv.Itoa(int(f)))
 				} else {
 					hold[position].currentObject = obj
 				}
+				hold[position].sentCurrentToArray = false
 				position = position + 1
 				down = true
-				hold[position].sentCurrentToArray = false
 			} else {
 				do = false // just quit because without a new first object the query is as good as done
-				Log.Print("--------------------------Node Start (Stop Execution)")
+				//Log.Print("--------------------------Node Start (Stop Execution)")
 			}
 		}
 
 		if ((position + 1) % 2) == 0 { // if it is a link
 
 			if down {
-				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				//Log.Print("----------------------------- " + strconv.Itoa(position+1))
 				var prevCur []byte
 				prevPosition := position - 1
 				if hold[prevPosition].query.saveName == "" {
@@ -2737,22 +2813,26 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 					if hold[position].query.saveName == "" {
 						hold[position].currentIDLink = link
 
-						f, _ := binary.Uvarint(link.FROM)
-						t, _ := binary.Uvarint(link.TO)
-						Log.Print(strconv.Itoa(int(f)) + " ++++ " + hold[position].link.currentDirection + " ++++ " + strconv.Itoa(int(t)))
+						//f, _ := binary.Uvarint(link.FROM)
+						//t, _ := binary.Uvarint(link.TO)
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					} else {
 						hold[position].currentObject = obj
+
+						//f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
+						//t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					}
+					hold[position].sentCurrentToArray = false
 					position = position + 1
 					down = true
-					hold[position].sentCurrentToArray = false
 				} else {
 					// Unable to get even one object so go to the previous node to change prevCur
 					position = position - 1
 					down = false
 				}
 			} else {
-				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				//Log.Print("----------------------------- " + strconv.Itoa(position+1))
 				obj, link, errs, loaded := hold[position].link.more2()
 				if len(errs) > 0 {
 					ret.Errors = append(ret.Errors, errs...)
@@ -2762,13 +2842,17 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 					if hold[position].query.saveName == "" {
 						hold[position].currentIDLink = link
 
-						f, _ := binary.Uvarint(link.FROM)
-						t, _ := binary.Uvarint(link.TO)
-
-						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+						//f, _ := binary.Uvarint(link.FROM)
+						//t, _ := binary.Uvarint(link.TO)
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					} else {
 						hold[position].currentObject = obj
+
+						//f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
+						//t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					}
+					hold[position].sentCurrentToArray = false
 					position = position + 1
 					down = true
 				} else {
@@ -2781,7 +2865,7 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 
 		if ((position+1)%2) != 0 && position != 0 && position != (len(hold)-1) { // if it an object query that is not the first and the last
 			if down {
-				Log.Print("----------------------------- " + strconv.Itoa(position+1))
+				//Log.Print("----------------------------- " + strconv.Itoa(position+1))
 				var prevCur []byte
 				prevPosition := position - 1
 				if hold[prevPosition].query.saveName == "" {
@@ -2803,28 +2887,25 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 						hold[position].currentIDObject = byt
 					} else {
 						hold[position].currentObject = obj
-						f, _ := binary.Uvarint(obj[KeyValueKey{Main: "ID"}])
-						Log.Print(" ++++ " + strconv.Itoa(int(f)))
 					}
+
+					hold[position].sentCurrentToArray = false
 					position = position + 1
 					down = true
-					hold[position].sentCurrentToArray = false
 				} else {
 					// Unable to get even one object so go to the previous node to change prevCur
 					position = position - 1
 					down = false
 				}
 			} else { // there is no point waiting here if the current is no longer valid we go up to get a new one
-				Log.Print("----------------------------- " + strconv.Itoa(position+1))
-				Log.Print(" ____ ")
+				//Log.Print("----------------------------- " + strconv.Itoa(position+1))
 				position = position - 1
 				down = false
 			}
 		}
 
 		if position == (len(hold) - 1) { // if the last query, that is definitely an object query
-			Log.Print("----------------------------- " + strconv.Itoa(position+1))
-			last++
+			//Log.Print("----------------------------- " + strconv.Itoa(position+1))
 			var prevCur []byte
 			prevPosition := position - 1
 			if hold[prevPosition].query.saveName == "" {
@@ -2842,56 +2923,73 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 				return
 			}
 			if loaded {
-				//log.Print("yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy ", last)
 				if hold[position].query.saveName == "" {
+					if bytes.Compare(byt, hold[position].currentIDObject) != 0 {
+						hold[position].sentCurrentToArray = false
+					}
 					hold[position].currentIDObject = byt
-					f, _ := binary.Uvarint(byt)
-					Log.Print(" ++++ " + strconv.Itoa(int(f)))
 				} else {
+					if bytes.Compare(obj[KeyValueKey{Main: "ID"}], hold[position].currentObject[KeyValueKey{Main: "ID"}]) != 0 {
+						hold[position].sentCurrentToArray = false
+					}
 					hold[position].currentObject = obj
 				}
-				if hold[position].query.skip > skiped {
-					skiped++
-				} else {
-					for _, ele := range hold {
 
-						if !ele.sentCurrentToArray {
-							if ele.query.Direction == "" && ele.query.saveName != "" { // it is an object query and saved
-								*ele.dataObject = append(*ele.dataObject, ele.currentObject)
-								ele.sentCurrentToArray = true
-							} else if ele.query.Direction != "" && ele.query.saveName != "" { // it is a link query and saved
-								*ele.dataObject = append(*ele.dataObject, ele.currentObject)
-								ele.sentCurrentToArray = true
-							} else if ele.query.Direction == "" && ele.query.saveName == "" { // it is an object query and not saved
-								*ele.idsObject = append(*ele.idsObject, ele.currentIDObject)
-								ele.sentCurrentToArray = true
-							} else if ele.query.Direction != "" && ele.query.saveName == "" { // it is a link query and not saved
-								*ele.idsLink = append(*ele.idsLink, ele.currentIDLink)
-								ele.sentCurrentToArray = true
+				for i := range hold {
+					if !hold[i].sentCurrentToArray {
+						if hold[i].query.Direction == "" && hold[i].query.saveName != "" { // it is an object query and saved
+							if hold[i].query.skip > hold[i].skiped {
+								hold[i].skiped++
+							} else {
+								hold[i].dataObject[string(hold[i].currentObject[KeyValueKey{Main: "ID"}])] = hold[i].currentObject
+								hold[i].sentCurrentToArray = true
+								hold[i].count++
 							}
+							if hold[i].count >= hold[i].query.limit {
+								do = false
+							}
+						} else if hold[i].query.Direction != "" && hold[i].query.saveName != "" { // it is a link query and saved
+							if hold[i].query.skip > hold[i].skiped {
+								hold[i].skiped++
+							} else {
+								hold[i].dataObject[string(hold[i].currentObject[KeyValueKey{Main: "FROM"}])+string(hold[i].currentObject[KeyValueKey{Main: "TO"}])] = hold[i].currentObject
+								hold[i].sentCurrentToArray = true
+								hold[i].count++
+							}
+							if hold[i].count >= hold[i].query.limit {
+								do = false
+							}
+						} else if hold[i].query.Direction == "" && hold[i].query.saveName == "" { // it is an object query and not saved
+							//ele.idsObject[string(ele.currentIDObject)] = ele.currentIDObject
+							hold[i].sentCurrentToArray = true
+						} else if hold[i].query.Direction != "" && hold[i].query.saveName == "" { // it is a link query and not saved
+							//*ele.idsLink = append(*ele.idsLink, ele.currentIDLink)
+							hold[i].sentCurrentToArray = true
 						}
 					}
-
-					if hold[position].query.limit <= count {
-						do = false
-					}
-					count++
 				}
+
 				position = position - 1
 				down = false
+
 			} else {
 				position = position - 1
 				down = false
 			}
 		}
 	}
+
 	for _, v := range hold {
 		if v.query.saveName != "" {
+			d := make([]map[KeyValueKey][]byte, 0)
+			for _, vv := range v.dataObject {
+				d = append(d, vv)
+			}
 			if v.query.Direction != "" { //if it is a link
 				l := LinkList{}
 				l.LinkName = v.query.TypeName
 				l.isIds = false
-				l.Links = *v.dataObject
+				l.Links = d
 				l.order.field = v.query.Sort
 				l.order.typ = v.query.SortType
 				(*data)[v.query.saveName] = &l
@@ -2899,7 +2997,350 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 				o := ObjectList{}
 				o.ObjectName = v.query.TypeName
 				o.isIds = false
-				o.Objects = *v.dataObject
+				o.Objects = d
+				o.order.field = v.query.Sort
+				o.order.typ = v.query.SortType
+				(*data)[v.query.saveName] = &o
+			}
+		}
+	}
+
+}
+
+//GetterGraphStraight ..
+//action: 'objects'
+//params... NodeQuery (NodeQuery)
+//placesses objectLists found in  node query [0] in variable [1]
+func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+	hold := make([]holder, len(qData))
+	defer func() {
+		for i := range hold {
+
+			if hold[i].first != nil {
+				hold[i].first.close()
+			}
+			if hold[i].link != nil {
+				hold[i].link.close()
+			}
+		}
+	}()
+
+	for i, v := range qData {
+		n, ok := v.(NodeQuery)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in graph.p expected Nodequery"))
+		}
+		h := holder{}
+		h.query = &n
+		if i == (len(qData) - 1) {
+			if h.query.limit == 0 {
+				h.query.limit = 100
+			}
+		}
+		j := i + 1
+		if j == 1 {
+			s := iteratorLoaderGraphStart{}
+			s.setup(g, h.query, txn)
+			h.first = &s
+			if h.query.saveName != "" {
+				m := make(map[string]map[KeyValueKey][]byte)
+				h.dataObject = m
+			} else {
+				m := make(map[string]struct{})
+				h.idsObject = m
+			}
+		}
+		if j%2 == 0 {
+			s := iteratorLoaderGraphLink{node: h.query, g: g, txn: txn}
+			h.link = &s
+			if h.query.saveName != "" {
+				m := make(map[string]map[KeyValueKey][]byte)
+				h.dataObject = m
+			} else {
+				m := make(map[string]LinkListList)
+				h.idsLink = m
+			}
+		}
+		if j%2 != 0 && i != 1 {
+			s := iteratorLoaderGraphObject{h.query, g, txn, false}
+			h.object = &s
+			if h.query.saveName != "" {
+				m := make(map[string]map[KeyValueKey][]byte)
+				h.dataObject = m
+			} else {
+				m := make(map[string]struct{})
+				h.idsObject = m
+			}
+		}
+
+		hold[i] = h
+	}
+
+	do := true
+	position := 1
+	down := true
+	last := 0
+
+	a := 0
+	b := 1
+	c := 2
+
+	for do {
+		// deal with the first node
+		if position == 1 {
+
+			if a == 0 {
+				//execution came up so change current and if successfull go back down if not call it a day
+				Log.Print("---------------------------- " + strconv.Itoa(a+1))
+				obj, byt, loaded, errs := hold[a].first.next2()
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				if loaded {
+					if hold[a].query.saveName == "" {
+						hold[a].currentIDObject = byt
+					} else {
+						hold[a].currentObject = obj
+					}
+					hold[a].sentCurrentToArray = false
+					position = 2
+					down = true
+				} else {
+					position = -1
+					if hold[a].query.saveName == "" {
+						if len(hold[a].idsObject) < 1 {
+							do = false
+							Log.Print("--------------------------Node Start (Stop Execution)")
+						}
+					} else {
+						if len(hold[a].dataObject) < 1 {
+							do = false
+							Log.Print("--------------------------Node Start (Stop Execution)")
+						}
+					}
+				}
+			}
+
+			if a != 0 { // if it an object query that is not the first and the last
+				Log.Print("----------------------------- " + strconv.Itoa(a+1))
+				var key string
+				if len(hold[a].loadedKeys) > 0 {
+					key, hold[a].loadedKeys = hold[a].loadedKeys[len(hold[a].loadedKeys)-1], hold[a].loadedKeys[:len(hold[a].loadedKeys)-1]
+				}
+
+				if key == "" {
+					position = -1
+				} else {
+					if hold[a].query.saveName == "" {
+						hold[a].currentIDObject = []byte(key)
+					} else {
+						hold[a].currentObject = hold[a].dataObject[key]
+					}
+					hold[position].sentCurrentToArray = false
+					position = 2
+					down = true
+				}
+			}
+		}
+
+		if position == 2 { // if it is a link
+
+			if down {
+				Log.Print("----------------------------- " + strconv.Itoa(b+1))
+				var prevCur []byte
+				if hold[a].query.saveName == "" {
+					prevCur = hold[a].currentIDObject
+				} else {
+					prevCur = hold[a].currentObject[KeyValueKey{Main: "ID"}]
+				}
+				if prevCur == nil {
+					ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(a)+", ID: "+string(prevCur)))
+					return
+				}
+				obj, link, errs, loaded := hold[b].link.get2(prevCur)
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				if loaded {
+					if hold[b].query.saveName == "" {
+						hold[b].currentIDLink = link
+						f, _ := binary.Uvarint(link.FROM)
+						t, _ := binary.Uvarint(link.TO)
+						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+					} else {
+						hold[b].currentObject = obj
+
+						f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
+						t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
+						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+					}
+					hold[b].sentCurrentToArray = false
+					position = 3
+					down = true
+				} else {
+					// Unable to get even one object so go to the previous node to change prevCur
+					position = 1
+				}
+			} else {
+				Log.Print("----------------------------- " + strconv.Itoa(b+1))
+				obj, link, errs, loaded := hold[b].link.more2()
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				if loaded {
+					if hold[b].query.saveName == "" {
+						hold[b].currentIDLink = link
+
+						f, _ := binary.Uvarint(link.FROM)
+						t, _ := binary.Uvarint(link.TO)
+						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+					} else {
+						hold[b].currentObject = obj
+
+						f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
+						t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
+						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+					}
+					hold[b].sentCurrentToArray = false
+					position = 3
+					down = true
+				} else {
+					// Unable to get even one object so go to the previous node to change prevCur
+					position = 1
+				}
+			}
+		}
+
+		if position == 3 { // if the last query, that is definitely an object query
+			Log.Print("----------------------------- " + strconv.Itoa(c+1))
+			last++
+			var prevCur []byte
+			if hold[b].query.saveName == "" {
+				prevCur = hold[b].currentIDLink.TO
+			} else {
+				prevCur = hold[b].currentObject[KeyValueKey{Main: "TO"}]
+			}
+			if prevCur == nil {
+				ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(b)+", ID: "+string(prevCur)))
+				return
+			}
+			obj, byt, errs, loaded := hold[c].object.get(prevCur)
+			if len(errs) > 0 {
+				ret.Errors = append(ret.Errors, errs...)
+				return
+			}
+			if loaded {
+				if hold[c].query.saveName == "" {
+					hold[c].sentCurrentToArray = false
+					hold[c].currentIDObject = byt
+				} else {
+					hold[c].sentCurrentToArray = false
+					hold[c].currentObject = obj
+				}
+
+				if !hold[a].sentCurrentToArray {
+					if hold[a].query.skip > hold[a].skiped {
+						hold[a].skiped++
+					} else {
+						hold[a].sentCurrentToArray = true
+						hold[a].count++
+						if hold[a].query.saveName != "" {
+							hold[a].dataObject[string(hold[a].currentObject[KeyValueKey{Main: "ID"}])] = hold[a].currentObject
+						} else {
+							hold[a].idsObject[string(hold[a].currentIDObject)] = struct{}{}
+						}
+					}
+					if hold[a].count >= hold[a].query.limit {
+						position = -1
+					}
+				}
+
+				if !hold[b].sentCurrentToArray {
+					if hold[b].query.skip > hold[b].skiped {
+						hold[b].skiped++
+					} else {
+						hold[b].sentCurrentToArray = true
+						hold[b].count++
+						if hold[b].query.saveName != "" {
+							hold[b].dataObject[string(hold[b].currentObject[KeyValueKey{Main: "FROM"}])+string(hold[b].currentObject[KeyValueKey{Main: "TO"}])] = hold[b].currentObject
+						} else {
+							hold[b].idsLink[string(hold[b].currentIDLink.FROM)+string(hold[b].currentIDLink.TO)] = hold[b].currentIDLink
+						}
+					}
+					if hold[b].count >= hold[b].query.limit {
+						position = -1
+					}
+				}
+
+				if !hold[c].sentCurrentToArray {
+					if hold[c].query.skip > hold[c].skiped {
+						hold[c].skiped++
+					} else {
+						hold[c].sentCurrentToArray = true
+						hold[c].count++
+						if hold[c].query.saveName != "" {
+							hold[c].dataObject[string(hold[c].currentObject[KeyValueKey{Main: "ID"}])] = hold[c].currentObject
+						} else {
+							hold[c].idsObject[string(hold[c].currentIDObject)] = struct{}{}
+						}
+					}
+					if hold[c].count >= hold[c].query.limit {
+						position = -1
+					}
+				}
+
+				position = 2
+				down = false
+
+			} else {
+				position = 2
+				down = false
+			}
+		}
+
+		if position == -1 {
+			if hold[c].query.saveName == "" {
+				for key := range hold[c].idsObject {
+					hold[c].loadedKeys = append(hold[c].loadedKeys, key)
+				}
+			} else {
+				for key := range hold[c].dataObject {
+					hold[c].loadedKeys = append(hold[c].loadedKeys, key)
+				}
+			}
+			a = a + 2
+			b = b + 2
+			c = c + 2
+			position = 1
+			if len(hold) < c {
+				do = false
+			}
+		}
+
+	}
+
+	for _, v := range hold {
+		if v.query.saveName != "" {
+			d := make([]map[KeyValueKey][]byte, 0)
+			for _, vv := range v.dataObject {
+				d = append(d, vv)
+			}
+			if v.query.Direction != "" { //if it is a link
+				l := LinkList{}
+				l.LinkName = v.query.TypeName
+				l.isIds = false
+				l.Links = d
+				l.order.field = v.query.Sort
+				l.order.typ = v.query.SortType
+				(*data)[v.query.saveName] = &l
+			} else {
+				o := ObjectList{}
+				o.ObjectName = v.query.TypeName
+				o.isIds = false
+				o.Objects = d
 				o.order.field = v.query.Sort
 				o.order.typ = v.query.SortType
 				(*data)[v.query.saveName] = &o
