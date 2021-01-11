@@ -1,7 +1,7 @@
 package keyvalue
 
 import (
-	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -58,8 +58,10 @@ func (b *BatchWriter) Go(inputLength int, db *badger.DB, kv *KV, length int) cha
 func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan bool, db *badger.DB) {
 	defer func() {
 		r := recover()
-		fmt.Println("Recovered in BatchWriter.mainRoutine ", r)
-		b.mainRoutine(id, input, internal, db)
+		if r != nil {
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in   BatchWriter.mainRoutine ")
+			b.mainRoutine(id, input, internal, db)
+		}
 	}()
 	var transaction *badger.Txn
 	var transactionCount int
@@ -106,10 +108,9 @@ func (b *BatchWriter) childRoutine(chs []chan bool) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			fmt.Println("Recovered in BatchWriter.childRoutine ", r)
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in  BatchWriter.childRoutine ")
 			b.childRoutine(chs)
 		}
-
 	}()
 	for {
 		time.Sleep(100 * time.Millisecond)

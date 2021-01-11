@@ -2,21 +2,14 @@ package simpleg
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime/debug"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	badger "github.com/dgraph-io/badger/v2"
-)
-
-var (
-	ErrObjectTypeNotFound = errors.New("Object Type is not saved in the Database")
-	ErrLinkInObjectLoader = errors.New("Object Cannot load Link data")
 )
 
 type NodeQueryInstruction struct {
@@ -321,8 +314,10 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 		item := i.iterator.Item()
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.db.KV.D))
+		//log.Print(i)
 		if i.indexed {
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
+
 			if string(kArray[2]) != i.field {
 				i.iterator.Next()
 				item = i.iterator.Item()
@@ -606,7 +601,7 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 		ret.Objects = make([]map[KeyValueKey][]byte, 0)
 	}
 	if node.Direction != "" {
-		errs = append(errs, ErrLinkInObjectLoader)
+		errs = append(errs, errors.New("Object Cannot load Link data"))
 		return nil, errs
 	}
 	ins, ok := node.Instructions["ID"]
@@ -657,72 +652,91 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 	iterator := iteratorLoader{}
 	errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn)
 	defer iterator.close()
-
+	delete(node.Instructions, node.index)
 	for d, b, e := iterator.next(); b; d, b, e = iterator.next() {
+
 		failed := false
 		if e != nil {
 			errs = append(errs, e)
 		}
 		if d != nil {
-			delete(node.Instructions, node.index)
 			for key, in1 := range node.Instructions {
-				g.DB.RLock()
+
 				var fieldType FieldType
+				var advancedFieldType AdvancedFieldType
+				g.DB.RLock()
 				va, ok := g.DB.OT[node.TypeName].Fields[key]
 				if !ok {
 					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 					g.DB.RUnlock()
 					return &ret, errs
 				} else {
-					fieldType = g.DB.FT[va.FieldType]
+					if !va.Advanced {
+						fieldType = g.DB.FT[va.FieldType]
+					} else {
+						advancedFieldType = g.DB.AFT[va.FieldType]
+					}
 				}
 				g.DB.RUnlock()
 
-				var buffer bytes.Buffer
-				buffer.WriteString(g.DB.Options.DBName)
-				buffer.WriteString(g.DB.KV.D)
-				buffer.WriteString(node.TypeName)
-				buffer.WriteString(g.DB.KV.D)
-				buffer.Write(d[KeyValueKey{Main: "ID"}])
-				buffer.WriteString(g.DB.KV.D)
-				buffer.WriteString(key)
-				item, err := txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					errs = append(errs, err)
-					return &ret, errs
-				} else if err == nil && item != nil {
-					var val []byte
+				if !va.Advanced {
+					var buffer bytes.Buffer
+					buffer.WriteString(g.DB.Options.DBName)
+					buffer.WriteString(g.DB.KV.D)
+					buffer.WriteString(node.TypeName)
+					buffer.WriteString(g.DB.KV.D)
+					buffer.Write(d[KeyValueKey{Main: "ID"}])
+					buffer.WriteString(g.DB.KV.D)
+					buffer.WriteString(key)
+					item, err := txn.Get(buffer.Bytes())
+					if err != nil && err == badger.ErrKeyNotFound {
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						errs = append(errs, err)
+						return &ret, errs
+					} else if err == nil && item != nil {
+						var val []byte
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return &ret, errs
+							}
+							val, err = item.ValueCopy(nil)
+							if err != nil {
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								errs = append(errs, err)
+								return &ret, errs
+							}
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								return &ret, errs
+							}
+							if !ok {
+								failed = true
+							}
+						}
+						if !failed {
+							if !isIds {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					}
+				} else {
 					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							errs = append(errs, err)
-							return &ret, errs
-						}
-						val, err = item.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							errs = append(errs, err)
-							return &ret, errs
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							errs = append(errs, err)
+						ok, err := advancedFieldType.Compare(txn, g.DB, true, node.TypeName, d[KeyValueKey{Main: "ID"}], d[KeyValueKey{Main: "ID"}], key, in2.action, in2.param)
+						if len(err) >= 1 {
+							errs = append(errs, err...)
 							return &ret, errs
 						}
 						if !ok {
 							failed = true
 						}
 					}
-					if !failed {
-						if !isIds {
-							d[KeyValueKey{Main: key}] = val
-						}
-					}
 				}
 
-			}
+			} // end of for loop
 			if !failed {
 				if node.skip > objectSkips {
 					objectSkips++
@@ -1239,7 +1253,7 @@ func GetterNewObject(g *GetterFactory, txn *badger.Txn, data *map[string]interfa
 	ot, ok := g.DB.OT[one]
 	g.DB.RUnlock()
 	if !ok {
-		ret.Errors = append(ret.Errors, ErrObjectTypeNotFound)
+		ret.Errors = append(ret.Errors, errors.New("Object Type is not saved in the Database"))
 	}
 	ret.Data = ot.New(g.DB)
 	q.Ret <- *ret
@@ -1408,7 +1422,7 @@ func GetterNewLink(g *GetterFactory, txn *badger.Txn, data *map[string]interface
 	lt, ok := g.DB.LT[st]
 	g.DB.RUnlock()
 	if !ok {
-		ret.Errors = append(ret.Errors, ErrObjectTypeNotFound)
+		ret.Errors = append(ret.Errors, errors.New("Object Type is not saved in the Database"))
 	}
 	ret.Data = lt.New(g.DB)
 	q.Ret <- *ret
@@ -1688,7 +1702,7 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 		a = make(map[KeyValueKey][]byte, 0)
 	}
 	if i.node.Direction != "" {
-		e = append(e, ErrLinkInObjectLoader)
+		e = append(e, errors.New("Object Cannot load Link data"))
 		return
 	}
 	ins, ok := i.node.Instructions["ID"]
@@ -1894,6 +1908,11 @@ type iteratorLoaderGraphLink struct {
 func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b LinkListList, c []error, loaded bool) {
 	errs := make([]error, 0)
 	i.from = from
+
+	if i.node.Direction == "" {
+		errs = append(errs, errors.New("This nodequery does not have a direction specified"))
+		return
+	}
 
 	switch i.node.Direction {
 	case "->", "<-":
@@ -2795,6 +2814,34 @@ func GetterGraphPartern(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 				//Log.Print("----------------------------- " + strconv.Itoa(position+1))
 				var prevCur []byte
 				prevPosition := position - 1
+
+				if hold[position].query.Direction != "-" {
+					g.DB.RLock()
+					fromName := hold[prevPosition].query.TypeName
+					lt, _ := g.DB.LT[hold[position].query.TypeName]
+					toName := hold[position+1].query.TypeName
+					g.DB.RUnlock()
+					if hold[prevPosition].query.Direction == "->" {
+						if fromName != lt.From {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[position].query.TypeName+" with direction -> does not support this 'FROM' -'"+fromName+"'-"))
+							return
+						}
+						if toName != lt.To {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[position].query.TypeName+" with direction -> does not support this 'TO' -'"+toName+"'-"))
+							return
+						}
+					} else if hold[position].query.Direction == "<-" {
+						if fromName != lt.To {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[position].query.TypeName+" with direction <- does not support this 'FROM' -'"+fromName+"'-"))
+							return
+						}
+						if toName != lt.From {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[position].query.TypeName+" with direction <- does not support this 'TO' -'"+toName+"'-"))
+							return
+						}
+					}
+				}
+
 				if hold[prevPosition].query.saveName == "" {
 					prevCur = hold[prevPosition].currentIDObject
 				} else {
@@ -3091,7 +3138,7 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 
 			if a == 0 {
 				//execution came up so change current and if successfull go back down if not call it a day
-				Log.Print("---------------------------- " + strconv.Itoa(a+1))
+				//Log.Print("---------------------------- " + strconv.Itoa(a+1))
 				obj, byt, loaded, errs := hold[a].first.next2()
 				if len(errs) > 0 {
 					ret.Errors = append(ret.Errors, errs...)
@@ -3111,19 +3158,19 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 					if hold[a].query.saveName == "" {
 						if len(hold[a].idsObject) < 1 {
 							do = false
-							Log.Print("--------------------------Node Start (Stop Execution)")
+							//Log.Print("--------------------------Node Start (Stop Execution)")
 						}
 					} else {
 						if len(hold[a].dataObject) < 1 {
 							do = false
-							Log.Print("--------------------------Node Start (Stop Execution)")
+							//Log.Print("--------------------------Node Start (Stop Execution)")
 						}
 					}
 				}
 			}
 
 			if a != 0 { // if it an object query that is not the first and the last
-				Log.Print("----------------------------- " + strconv.Itoa(a+1))
+				//Log.Print("----------------------------- " + strconv.Itoa(a+1))
 				var key string
 				if len(hold[a].loadedKeys) > 0 {
 					key, hold[a].loadedKeys = hold[a].loadedKeys[len(hold[a].loadedKeys)-1], hold[a].loadedKeys[:len(hold[a].loadedKeys)-1]
@@ -3147,8 +3194,36 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 		if position == 2 { // if it is a link
 
 			if down {
-				Log.Print("----------------------------- " + strconv.Itoa(b+1))
+				//Log.Print("----------------------------- " + strconv.Itoa(b+1))
 				var prevCur []byte
+
+				if hold[b].query.Direction != "-" {
+					g.DB.RLock()
+					fromName := hold[a].query.TypeName
+					lt, _ := g.DB.LT[hold[b].query.TypeName]
+					toName := hold[c].query.TypeName
+					g.DB.RUnlock()
+					if hold[b].query.Direction == "->" {
+						if fromName != lt.From {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[b].query.TypeName+" with direction -> does not support this 'FROM' -'"+fromName+"'-"))
+							return
+						}
+						if toName != lt.To {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[b].query.TypeName+" with direction -> does not support this 'TO' -'"+toName+"'-"))
+							return
+						}
+					} else if hold[b].query.Direction == "<-" {
+						if fromName != lt.To {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[b].query.TypeName+" with direction <- does not support this 'FROM' -'"+fromName+"'-"))
+							return
+						}
+						if toName != lt.From {
+							ret.Errors = append(ret.Errors, errors.New("Link of type "+hold[b].query.TypeName+" with direction <- does not support this 'TO' -'"+toName+"'-"))
+							return
+						}
+					}
+				}
+
 				if hold[a].query.saveName == "" {
 					prevCur = hold[a].currentIDObject
 				} else {
@@ -3166,15 +3241,14 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 				if loaded {
 					if hold[b].query.saveName == "" {
 						hold[b].currentIDLink = link
-						f, _ := binary.Uvarint(link.FROM)
-						t, _ := binary.Uvarint(link.TO)
-						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+						//f, _ := binary.Uvarint(link.FROM)
+						//t, _ := binary.Uvarint(link.TO)
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					} else {
 						hold[b].currentObject = obj
-
-						f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
-						t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
-						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+						//f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
+						//t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					}
 					hold[b].sentCurrentToArray = false
 					position = 3
@@ -3184,7 +3258,7 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 					position = 1
 				}
 			} else {
-				Log.Print("----------------------------- " + strconv.Itoa(b+1))
+				//Log.Print("----------------------------- " + strconv.Itoa(b+1))
 				obj, link, errs, loaded := hold[b].link.more2()
 				if len(errs) > 0 {
 					ret.Errors = append(ret.Errors, errs...)
@@ -3194,15 +3268,15 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 					if hold[b].query.saveName == "" {
 						hold[b].currentIDLink = link
 
-						f, _ := binary.Uvarint(link.FROM)
-						t, _ := binary.Uvarint(link.TO)
-						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+						//f, _ := binary.Uvarint(link.FROM)
+						//t, _ := binary.Uvarint(link.TO)
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					} else {
 						hold[b].currentObject = obj
 
-						f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
-						t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
-						Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
+						//f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
+						//t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
+						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[b].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					}
 					hold[b].sentCurrentToArray = false
 					position = 3
@@ -3215,7 +3289,7 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 		}
 
 		if position == 3 { // if the last query, that is definitely an object query
-			Log.Print("----------------------------- " + strconv.Itoa(c+1))
+			//Log.Print("----------------------------- " + strconv.Itoa(c+1))
 			last++
 			var prevCur []byte
 			if hold[b].query.saveName == "" {
@@ -3321,6 +3395,8 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 		}
 
 	}
+
+	//Log.Print("Done with this one")
 
 	for _, v := range hold {
 		if v.query.saveName != "" {

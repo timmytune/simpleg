@@ -7,25 +7,61 @@ import (
 	"time"
 )
 
-//object
+//User Object
 type User struct {
-	DB        *DB
-	ID        uint64
-	firstName string
-	lastName  string
-	email     string
-	active    bool
-	age       int64
+	DB         *DB
+	ID         uint64
+	firstName  string
+	lastName   string
+	email      string
+	active     bool
+	age        int64
+	activities FieldTypeArrayValue
 }
 
-//object
+type Activities struct {
+	date     time.Time
+	deviceID string
+}
+
+func (u *User) addActivity(date time.Time, deviceID string, ind uint64) (index uint64, errs []error) {
+	errs = u.populateActivity()
+	if len(errs) > 0 {
+		return
+	}
+	a := Activities{}
+	a.date = date
+	a.deviceID = deviceID
+	index, err := u.activities.Set(a, ind)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return
+}
+
+func (u *User) populateActivity() (errs []error) {
+	errs = make([]error, 0)
+	af := u.DB.AFT["array"]
+	if u.ID == uint64(0) {
+		errs = append(errs, errors.New("User object does not have an ID"))
+		return
+	}
+	if u.activities.Field == "" {
+		var k interface{}
+		k, errs = af.New(u.DB, 3, "User", "activities", true, u.ID)
+		u.activities = k.(FieldTypeArrayValue)
+	}
+	return
+}
+
+//Post Object
 type Post struct {
 	DB   *DB
 	ID   uint64
 	body string
 }
 
-//Link
+//Friend Link
 type Friend struct {
 	DB       *DB
 	FROM     uint64
@@ -34,14 +70,14 @@ type Friend struct {
 	accepted bool
 }
 
-//Link
+//Author Link
 type Author struct {
 	DB   *DB
 	FROM uint64
 	TO   uint64
 }
 
-//Link
+//Like Link
 type Like struct {
 	DB   *DB
 	FROM uint64
@@ -216,11 +252,58 @@ func GetUserOption() ObjectTypeOptions {
 	}
 	fv := FieldValidation{}
 	uo.Fields = make(map[string]FieldOptions)
-	uo.Fields["firstName"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.String("firstName", 3, 20, true, true, false)}
-	uo.Fields["lastName"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.String("lastName", 3, 20, true, true, false)}
-	uo.Fields["email"] = FieldOptions{Indexed: true, FieldType: "string", Validate: fv.Email("email", true)}
-	uo.Fields["active"] = FieldOptions{Indexed: false, FieldType: "bool", Validate: nil}
+	uo.Fields["firstName"] = FieldOptions{Indexed: true, Advanced: false, FieldType: "string", Validate: fv.String("firstName", 3, 20, true, true, false)}
+	uo.Fields["lastName"] = FieldOptions{Indexed: true, Advanced: false, FieldType: "string", Validate: fv.String("lastName", 3, 20, true, true, false)}
+	uo.Fields["email"] = FieldOptions{Indexed: true, Advanced: false, FieldType: "string", Validate: fv.Email("email", true)}
+	uo.Fields["active"] = FieldOptions{Indexed: false, Advanced: false, FieldType: "bool", Validate: nil}
 	uo.Fields["age"] = FieldOptions{Indexed: false, FieldType: "int64", Validate: fv.Int64("age", 10, 28)}
+
+	arrayOptions := ArrayOptions{}
+	arrayOptions.New = func() interface{} {
+		ret := Activities{}
+		return ret
+	}
+	arrayOptions.Set = func(data interface{}, db *DB) (ret map[string][]byte, err error) {
+		ret = make(map[string][]byte)
+		act := data.(Activities)
+		ret["date"], err = db.FT["date"].Set(act.date)
+		if act.deviceID != "" {
+			ret["deviceID"], err = db.FT["string"].Set(act.deviceID)
+		}
+		return
+	}
+	arrayOptions.Get = func(data map[string][]byte, db *DB) (interface{}, error) {
+
+		ret := Activities{}
+		var err error
+
+		if f, ok := data["deviceID"]; ok {
+			k, er := db.FT["string"].Get(f)
+			err = er
+			if err != nil {
+				return nil, err
+			}
+			ret.deviceID = k.(string)
+		}
+
+		if f, ok := data["date"]; ok {
+			k, er := db.FT["date"].Get(f)
+			err = er
+			if err != nil {
+				return nil, err
+			}
+			ret.date = k.(time.Time)
+		}
+
+		return ret, err
+	}
+	arrayOptions.Fields = make(map[string]string)
+	arrayOptions.Fields["deviceID"] = "string"
+	arrayOptions.Fields["date"] = "date"
+	m := FieldOptions{Indexed: false, Advanced: true, FieldType: "array"}
+	m.FieldTypeOptions = make([]interface{}, 0)
+	m.FieldTypeOptions = append(m.FieldTypeOptions, arrayOptions)
+	uo.Fields["activities"] = m
 
 	return uo
 }
@@ -563,7 +646,7 @@ func GetAuthorLinkOption() LinkTypeOptions {
 
 func GetLikeLinkOption() LinkTypeOptions {
 	fl := LinkTypeOptions{}
-	fl.Type = 1
+	fl.Type = 2
 	fl.Name = "Like"
 	fl.From = "User"
 	fl.To = "Post"

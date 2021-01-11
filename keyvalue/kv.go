@@ -3,7 +3,6 @@ package keyvalue
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	badger "github.com/dgraph-io/badger/v2"
 	"github.com/dgraph-io/badger/v2/pb"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -21,6 +21,8 @@ var (
 	DefaultIteratorOptions = badger.DefaultIteratorOptions
 	WriterInput            chan WriterData
 	lock                   = sync.Mutex{}
+
+	Log *zerolog.Logger
 )
 
 func BytesToInt(b []byte) (int, error) {
@@ -109,8 +111,11 @@ func (s *KV) DoneWriteTransaction() {
 func (s *KV) setWriteTransaction() {
 	defer func() {
 		r := recover()
-		fmt.Println("Recovered in set write Transaction from error", r)
-		s.setWriteTransaction()
+		if r != nil {
+			(*Log).Print("Recovered in set write Transaction from error")
+			s.setWriteTransaction()
+		}
+
 	}()
 
 	for {
@@ -129,14 +134,14 @@ func (s *KV) setWriteTransaction() {
 }
 
 // GetNextID Retrievies the next available interger for the provided key
-func (s *KV) GetNextID(key string) (uint64, error) {
+func (s *KV) GetNextID(key string, limit uint64) (uint64, error) {
 	lock.Lock()
 	defer lock.Unlock()
 	var e error
 	var i uint64
 	_, ok := s.Seqs[key]
 	if !ok {
-		s.Seqs[key], e = s.DB.GetSequence([]byte(key), 100)
+		s.Seqs[key], e = s.DB.GetSequence([]byte(key), limit)
 	}
 	if e != nil {
 		return i, e
@@ -153,6 +158,7 @@ func (s *KV) GetNextID(key string) (uint64, error) {
 func (s *KV) CombineKey(key ...string) []byte {
 	return []byte(strings.Join(key, s.D))
 }
+
 func (s *KV) Set(one, two, three, four, five string, value []byte) error {
 	var err error
 
@@ -212,36 +218,17 @@ func (s *KV) Stream(prefix []string, chooseKey func(*badger.Item) bool) (*pb.KVL
 	var w *pb.KVList
 
 	stream := s.DB.NewStream()
-	// db.NewStreamAt(readTs) for managed mode.
 
-	// -- Optional settings
 	stream.NumGo = 4 // Set number of goroutines to use for iteration.
 
-	//pre := strings.Join(prefix, s.D)
-
-	//stream.Prefix = []byte("some-prefix") // Leave nil for iteration over the whole DB.
-	if len(prefix) > 0 {
-		//stream.Prefix = []byte(pre)
-	}
 	stream.LogPrefix = "Badger.Streaming" // For identifying stream logs. Outputs to Logger.
-
-	// ChooseKey is called concurrently for every key. If left nil, assumes true by default.
-	//stream.ChooseKey = func(item *badger.Item) bool {
-	//	return true //bytes.HasSuffix(item.Key(), []byte("er"))
-	//}
 
 	if chooseKey != nil {
 		stream.ChooseKey = chooseKey
 	}
 
-	// KeyToList is called concurrently for chosen keys. This can be used to convert
-	// Badger data into custom key-values. If nil, uses stream.ToList, a default
-	// implementation, which picks all valid key-values.
 	stream.KeyToList = nil
 
-	// -- End of optional settings.
-
-	// Send is called serially, while Stream.Orchestrate is running.
 	stream.Send = func(list *pb.KVList) error {
 		var err error
 		w = list // Write to w.
@@ -296,7 +283,6 @@ func (s *KV) Read(key ...string) (map[string][]byte, map[string]error) {
 			item := it.Item()
 			k := item.Key()
 			er := item.Value(func(v []byte) error {
-				//fmt.Printf("key=%s, value=%s\n", k, v)
 				ret[string(k)] = v
 				return nil
 			})

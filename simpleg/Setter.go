@@ -89,12 +89,12 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 	tnx := s.DB.KV.DB.NewTransaction(false)
 	defer func() {
 		tnx.Discard()
-		//s.DB.KV.DoneWriteTransaction()
 	}()
 
 	_, ok = m[KeyValueKey{Main: "ID"}]
 	if !ok {
-		i, ee := s.DB.KV.GetNextID(typ)
+		var ee error
+		i, ee = s.DB.KV.GetNextID(typ, 100)
 		if ee != nil {
 			return i, append(e, ee)
 		}
@@ -179,6 +179,7 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 		for key, v := range m {
 			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(from), string(to), key.GetFullString(s.DB.KV.D))
 		}
+
 		s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED-", string(to), string(from))
 		s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED+", string(from), string(to))
 	}
@@ -344,7 +345,6 @@ func (s *SetterFactory) Run() {
 	for {
 		job = <-s.Input
 		switch job.Ins {
-
 		case "save.object":
 			one, ok := job.Data[0].(string)
 			if !ok {
@@ -357,7 +357,6 @@ func (s *SetterFactory) Run() {
 				job.Ret <- er
 				close(job.Ret)
 			}
-
 		case "save.object.field":
 			one, ok := job.Data[0].(string)
 			if !ok {

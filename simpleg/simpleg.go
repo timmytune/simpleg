@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"sync"
 
+	badger "github.com/dgraph-io/badger/v2"
 	"github.com/rs/zerolog"
 	kv "ytech.com.ng/projects/jists/keyvalue"
 )
@@ -22,6 +23,14 @@ type FieldType interface {
 	CompareIndexed(typ string, a interface{}) (string, string, error)
 }
 
+type AdvancedFieldType interface {
+	GetOption() map[string]string
+	New(db *DB, params ...interface{}) (interface{}, []error)
+	Set(db *DB, params ...interface{}) []error
+	Get(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error)
+	Compare(*badger.Txn, *DB, bool, string, []byte, []byte, string, string, interface{}) (bool, []error)
+}
+
 type FieldTypeOptions struct {
 	Name          string
 	AllowIndexing bool
@@ -29,9 +38,11 @@ type FieldTypeOptions struct {
 
 //FieldOptions saves the options reqiored for a field
 type FieldOptions struct {
-	Indexed   bool
-	Validate  func(interface{}, *DB) (bool, interface{}, error)
-	FieldType string
+	Indexed          bool
+	Validate         func(interface{}, *DB) (bool, interface{}, error)
+	FieldType        string
+	Advanced         bool
+	FieldTypeOptions []interface{}
 }
 
 type ObjectTypeOptions struct {
@@ -90,6 +101,7 @@ type DB struct {
 	KV      *kv.KV
 	FT      map[string]FieldType
 	FTO     map[string]FieldTypeOptions
+	AFT     map[string]AdvancedFieldType
 	OT      map[string]ObjectTypeOptions
 	LT      map[string]LinkTypeOptions
 	Setter  SetterFactory
@@ -106,6 +118,7 @@ func (db *DB) Init(o Options) error {
 	//os.Stderr = file
 	//log.SetOutput(file)
 	Log.Info().Msg("Database initiating")
+	kv.Log = &Log
 	//zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	//db.Lock = sync.Mutex{}
 	db.Options = o
@@ -113,6 +126,7 @@ func (db *DB) Init(o Options) error {
 	db.FTO = make(map[string]FieldTypeOptions)
 	db.OT = make(map[string]ObjectTypeOptions)
 	db.LT = make(map[string]LinkTypeOptions)
+	db.AFT = make(map[string]AdvancedFieldType)
 	db.Setter = SetterFactory{}
 	db.Getter = GetterFactory{}
 	db.AddFieldType(FieldTypeOptions{Name: "bool", AllowIndexing: false}, &FieldTypeBool{})
@@ -120,6 +134,7 @@ func (db *DB) Init(o Options) error {
 	db.AddFieldType(FieldTypeOptions{Name: "int64", AllowIndexing: true}, &FieldTypeInt64{})
 	db.AddFieldType(FieldTypeOptions{Name: "uint64", AllowIndexing: true}, &FieldTypeUint64{})
 	db.AddFieldType(FieldTypeOptions{Name: "date", AllowIndexing: true}, &FieldTypeDate{})
+	db.AddAdvancedFieldType("array", &FieldTypeArray{})
 
 	Log.Info().Msg("Database initiated")
 	return nil
@@ -239,6 +254,15 @@ func (db *DB) AddFieldType(o FieldTypeOptions, f FieldType) error {
 	}
 	db.FT[o.Name] = f
 	db.FTO[o.Name] = o
+	return err
+}
+
+func (db *DB) AddAdvancedFieldType(name string, f AdvancedFieldType) error {
+	var err error
+	if f == nil {
+		return errors.New("invalid AdvancedFieldType provided")
+	}
+	db.AFT[name] = f
 	return err
 }
 
