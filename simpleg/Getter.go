@@ -1027,7 +1027,9 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 			failed = false
 		}
 		for key, in1 := range node.Instructions {
+			var advancedFieldType AdvancedFieldType
 			var fieldType FieldType
+			var va FieldOptions
 			g.DB.RLock()
 			va, ok := g.DB.LT[node.TypeName].Fields[key]
 			if !ok {
@@ -1036,65 +1038,88 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 				g.DB.RUnlock()
 				return &ret, errs
 			}
-			fieldType = g.DB.FT[va.FieldType]
+			if !va.Advanced {
+				fieldType = g.DB.FT[va.FieldType]
+			} else {
+				advancedFieldType = g.DB.AFT[va.FieldType]
+			}
 			g.DB.RUnlock()
-			var buffer bytes.Buffer
-			buffer.WriteString(g.DB.Options.DBName)
-			buffer.WriteString(g.DB.KV.D)
-			buffer.WriteString(node.TypeName)
-			buffer.WriteString(g.DB.KV.D)
-			if node.Direction == "<-" {
-				buffer.Write(kArray[4])
+
+			if !va.Advanced {
+				var buffer bytes.Buffer
+				buffer.WriteString(g.DB.Options.DBName)
+				buffer.WriteString(g.DB.KV.D)
+				buffer.WriteString(node.TypeName)
+				buffer.WriteString(g.DB.KV.D)
+				if node.Direction == "<-" {
+					buffer.Write(kArray[4])
+				} else {
+					buffer.Write(kArray[3])
+				}
+				buffer.WriteString(g.DB.KV.D)
+				if node.Direction == "<-" {
+					buffer.Write(kArray[3])
+				} else {
+					buffer.Write(kArray[4])
+				}
+				buffer.WriteString(g.DB.KV.D)
+				buffer.WriteString(key)
+				item2, err := txn.Get(buffer.Bytes())
+				if err != nil && err == badger.ErrKeyNotFound {
+				} else if err != nil && err != badger.ErrKeyNotFound {
+					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					errs = append(errs, err)
+					iterator.Close()
+					return &ret, errs
+				} else if err == nil && item2 != nil {
+					var val []byte
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							errs = append(errs, err)
+							return &ret, errs
+						}
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							iterator.Close()
+							errs = append(errs, err)
+							return &ret, errs
+						}
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							errs = append(errs, err)
+							iterator.Close()
+							return &ret, errs
+						}
+						if !ok {
+							failed = true
+						}
+					}
+					if !failed {
+						if !isIds {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
+				}
 			} else {
-				buffer.Write(kArray[3])
-			}
-			buffer.WriteString(g.DB.KV.D)
-			if node.Direction == "<-" {
-				buffer.Write(kArray[3])
-			} else {
-				buffer.Write(kArray[4])
-			}
-			buffer.WriteString(g.DB.KV.D)
-			buffer.WriteString(key)
-			item2, err := txn.Get(buffer.Bytes())
-			if err != nil && err == badger.ErrKeyNotFound {
-			} else if err != nil && err != badger.ErrKeyNotFound {
-				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-				errs = append(errs, err)
-				iterator.Close()
-				return &ret, errs
-			} else if err == nil && item2 != nil {
-				var val []byte
 				for _, in2 := range in1 {
-					rawParam, err := fieldType.Set(in2.param)
-					if err != nil {
-						errs = append(errs, err)
-						return &ret, errs
+					var ok bool
+					var err []error
+					if node.Direction == "<-" {
+						ok, err = advancedFieldType.Compare(txn, g.DB, false, node.TypeName, kArray[4], kArray[3], key, in2.action, in2.param)
+					} else {
+						ok, err = advancedFieldType.Compare(txn, g.DB, false, node.TypeName, kArray[3], kArray[4], key, in2.action, in2.param)
 					}
-					val, err = item2.ValueCopy(nil)
-					if err != nil {
-						Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-						iterator.Close()
-						errs = append(errs, err)
-						return &ret, errs
-					}
-					ok, err := fieldType.Compare(in2.action, val, rawParam)
-					if err != nil {
-						errs = append(errs, err)
-						iterator.Close()
+					if len(err) > 0 {
+						errs = append(errs, err...)
 						return &ret, errs
 					}
 					if !ok {
 						failed = true
 					}
 				}
-				if !failed {
-					if !isIds {
-						d[KeyValueKey{Main: key}] = val
-					}
-				}
 			}
-
 		}
 		if !failed {
 			if node.skip > objectSkips {
@@ -1789,62 +1814,78 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 		}
 		if d != nil {
 			for key, in1 := range i.node.Instructions {
-				i.g.DB.RLock()
 				var fieldType FieldType
-				va, ok := i.g.DB.OT[i.node.TypeName].Fields[key]
+				var advancedFieldType AdvancedFieldType
+				var va FieldOptions
+				i.g.DB.RLock()
+				va, ok = i.g.DB.OT[i.node.TypeName].Fields[key]
 				if !ok {
 					e = append(e, errors.New("Field name -"+key+"- not found in database"))
 					i.g.DB.RUnlock()
 					return
-				} else {
+				}
+				if !va.Advanced {
 					fieldType = i.g.DB.FT[va.FieldType]
+				} else {
+					advancedFieldType = i.g.DB.AFT[va.FieldType]
 				}
 				i.g.DB.RUnlock()
-
-				var buffer bytes.Buffer
-				buffer.WriteString(i.g.DB.Options.DBName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(i.node.TypeName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.Write(d[KeyValueKey{Main: "ID"}])
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(key)
-				item, err := i.txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					e = append(e, err)
-					return
-				} else if err == nil && item != nil {
-					var val []byte
+				if !va.Advanced {
+					var buffer bytes.Buffer
+					buffer.WriteString(i.g.DB.Options.DBName)
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(i.node.TypeName)
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.Write(d[KeyValueKey{Main: "ID"}])
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(key)
+					item, err := i.txn.Get(buffer.Bytes())
+					if err != nil && err == badger.ErrKeyNotFound {
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						e = append(e, err)
+						return
+					} else if err == nil && item != nil {
+						var val []byte
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								e = append(e, err)
+								return
+							}
+							val, err = item.ValueCopy(nil)
+							if err != nil {
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								e = append(e, err)
+								return
+							}
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								e = append(e, err)
+								return
+							}
+							if !ok {
+								failed = true
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					}
+				} else {
 					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							e = append(e, err)
-							return
-						}
-						val, err = item.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							e = append(e, err)
-							return
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							e = append(e, err)
+						ok, err := advancedFieldType.Compare(i.txn, i.g.DB, true, i.node.TypeName, d[KeyValueKey{Main: "ID"}], d[KeyValueKey{Main: "ID"}], key, in2.action, in2.param)
+						if len(err) >= 1 {
+							e = append(e, err...)
 							return
 						}
 						if !ok {
 							failed = true
 						}
 					}
-					if !failed {
-						if i.node.saveName != "" {
-							d[KeyValueKey{Main: key}] = val
-						}
-					}
 				}
-
 			}
 			if !failed {
 				c = true
@@ -1942,68 +1983,89 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 			}
 			for key, in1 := range i.node.Instructions {
 				var fieldType FieldType
+				var advancedFieldType AdvancedFieldType
+				var va FieldOptions
+				var ok bool
 				i.g.DB.RLock()
-				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				va, ok = i.g.DB.LT[i.node.TypeName].Fields[key]
 				if !ok {
 					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 					i.iterator.Close()
 					i.g.DB.RUnlock()
 					return
 				}
-				fieldType = i.g.DB.FT[va.FieldType]
-				i.g.DB.RUnlock()
-				var buffer bytes.Buffer
-				buffer.WriteString(i.g.DB.Options.DBName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(i.node.TypeName)
-				buffer.WriteString(i.g.DB.KV.D)
-				if i.node.Direction == "->" {
-					buffer.Write(ka[3])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[4])
+				if !va.Advanced {
+					fieldType = i.g.DB.FT[va.FieldType]
 				} else {
-					buffer.Write(ka[4])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[3])
+					advancedFieldType = i.g.DB.AFT[va.FieldType]
 				}
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(key)
-				item2, err := i.txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					errs = append(errs, err)
-					i.iterator.Close()
-					return
-				} else if err == nil && item2 != nil {
-					var val []byte
+				i.g.DB.RUnlock()
+
+				if !va.Advanced {
+					var buffer bytes.Buffer
+					buffer.WriteString(i.g.DB.Options.DBName)
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(i.node.TypeName)
+					buffer.WriteString(i.g.DB.KV.D)
+					if i.node.Direction == "->" {
+						buffer.Write(ka[3])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[4])
+					} else {
+						buffer.Write(ka[4])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[3])
+					}
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(key)
+					item2, err := i.txn.Get(buffer.Bytes())
+					if err != nil && err == badger.ErrKeyNotFound {
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						errs = append(errs, err)
+						i.iterator.Close()
+						return
+					} else if err == nil && item2 != nil {
+						var val []byte
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return
+							}
+							val, err = item2.ValueCopy(nil)
+							if err != nil {
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								i.iterator.Close()
+								errs = append(errs, err)
+								return
+							}
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					}
+				} else {
 					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							errs = append(errs, err)
-							return
-						}
-						val, err = item2.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							i.iterator.Close()
-							errs = append(errs, err)
-							return
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							errs = append(errs, err)
-							i.iterator.Close()
+						ok, err := advancedFieldType.Compare(i.txn, i.g.DB, false, i.node.TypeName, d[KeyValueKey{Main: "ID"}], d[KeyValueKey{Main: "ID"}], key, in2.action, in2.param)
+						if len(err) >= 1 {
+							errs = append(errs, err...)
 							return
 						}
 						if !ok {
 							failed = true
-							break
-						}
-					}
-					if !failed {
-						if i.node.saveName != "" {
-							d[KeyValueKey{Main: key}] = val
 						}
 					}
 				}
@@ -2107,72 +2169,91 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 			}
 			for key, in1 := range i.node.Instructions {
 				var fieldType FieldType
+				var advancedFieldType AdvancedFieldType
+				var va FieldOptions
+				var ok bool
 				i.g.DB.RLock()
-				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				va, ok = i.g.DB.LT[i.node.TypeName].Fields[key]
 				if !ok {
 					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 					i.iterator.Close()
 					i.g.DB.RUnlock()
 					return
 				}
-				fieldType = i.g.DB.FT[va.FieldType]
-				i.g.DB.RUnlock()
-				var buffer bytes.Buffer
-				buffer.WriteString(i.g.DB.Options.DBName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(i.node.TypeName)
-				buffer.WriteString(i.g.DB.KV.D)
-				if i.currentDirection == "->" {
-					buffer.Write(ka[3])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[4])
+				if !va.Advanced {
+					fieldType = i.g.DB.FT[va.FieldType]
 				} else {
-					buffer.Write(ka[4])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[3])
+					advancedFieldType = i.g.DB.AFT[va.FieldType]
 				}
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(key)
-				item2, err := i.txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					errs = append(errs, err)
-					i.iterator.Close()
-					return
-				} else if err == nil && item2 != nil {
-					var val []byte
+				i.g.DB.RUnlock()
+				if !va.Advanced {
+					var buffer bytes.Buffer
+					buffer.WriteString(i.g.DB.Options.DBName)
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(i.node.TypeName)
+					buffer.WriteString(i.g.DB.KV.D)
+					if i.currentDirection == "->" {
+						buffer.Write(ka[3])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[4])
+					} else {
+						buffer.Write(ka[4])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[3])
+					}
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(key)
+					item2, err := i.txn.Get(buffer.Bytes())
+					if err != nil && err == badger.ErrKeyNotFound {
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						errs = append(errs, err)
+						i.iterator.Close()
+						return
+					} else if err == nil && item2 != nil {
+						var val []byte
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return
+							}
+							val, err = item2.ValueCopy(nil)
+							if err != nil {
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								i.iterator.Close()
+								errs = append(errs, err)
+								return
+							}
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					}
+				} else {
 					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							errs = append(errs, err)
-							return
-						}
-						val, err = item2.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							i.iterator.Close()
-							errs = append(errs, err)
-							return
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							errs = append(errs, err)
-							i.iterator.Close()
+						ok, err := advancedFieldType.Compare(i.txn, i.g.DB, false, i.node.TypeName, d[KeyValueKey{Main: "ID"}], d[KeyValueKey{Main: "ID"}], key, in2.action, in2.param)
+						if len(err) >= 1 {
+							errs = append(errs, err...)
 							return
 						}
 						if !ok {
 							failed = true
-							break
-						}
-					}
-					if !failed {
-						if i.node.saveName != "" {
-							d[KeyValueKey{Main: key}] = val
 						}
 					}
 				}
-
 			}
 			if !failed {
 				loaded = true
@@ -2250,72 +2331,91 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 			}
 			for key, in1 := range i.node.Instructions {
 				var fieldType FieldType
+				var advancedFieldType AdvancedFieldType
+				var va FieldOptions
+				var ok bool
 				i.g.DB.RLock()
-				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				va, ok = i.g.DB.LT[i.node.TypeName].Fields[key]
 				if !ok {
 					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 					i.iterator.Close()
 					i.g.DB.RUnlock()
 					return
 				}
-				fieldType = i.g.DB.FT[va.FieldType]
-				i.g.DB.RUnlock()
-				var buffer bytes.Buffer
-				buffer.WriteString(i.g.DB.Options.DBName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(i.node.TypeName)
-				buffer.WriteString(i.g.DB.KV.D)
-				if i.node.Direction == "->" {
-					buffer.Write(ka[3])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[4])
+				if !va.Advanced {
+					fieldType = i.g.DB.FT[va.FieldType]
 				} else {
-					buffer.Write(ka[4])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[3])
+					advancedFieldType = i.g.DB.AFT[va.FieldType]
 				}
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(key)
-				item2, err := i.txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					errs = append(errs, err)
-					i.iterator.Close()
-					return
-				} else if err == nil && item2 != nil {
-					var val []byte
+				if !va.Advanced {
+					i.g.DB.RUnlock()
+					var buffer bytes.Buffer
+					buffer.WriteString(i.g.DB.Options.DBName)
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(i.node.TypeName)
+					buffer.WriteString(i.g.DB.KV.D)
+					if i.node.Direction == "->" {
+						buffer.Write(ka[3])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[4])
+					} else {
+						buffer.Write(ka[4])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[3])
+					}
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(key)
+					item2, err := i.txn.Get(buffer.Bytes())
+					if err != nil && err == badger.ErrKeyNotFound {
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						errs = append(errs, err)
+						i.iterator.Close()
+						return
+					} else if err == nil && item2 != nil {
+						var val []byte
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return
+							}
+							val, err = item2.ValueCopy(nil)
+							if err != nil {
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								i.iterator.Close()
+								errs = append(errs, err)
+								return
+							}
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					}
+				} else {
 					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							errs = append(errs, err)
-							return
-						}
-						val, err = item2.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							i.iterator.Close()
-							errs = append(errs, err)
-							return
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							errs = append(errs, err)
-							i.iterator.Close()
+						ok, err := advancedFieldType.Compare(i.txn, i.g.DB, false, i.node.TypeName, d[KeyValueKey{Main: "ID"}], d[KeyValueKey{Main: "ID"}], key, in2.action, in2.param)
+						if len(err) >= 1 {
+							errs = append(errs, err...)
 							return
 						}
 						if !ok {
 							failed = true
-							break
-						}
-					}
-					if !failed {
-						if i.node.saveName != "" {
-							d[KeyValueKey{Main: key}] = val
 						}
 					}
 				}
-
 			}
 			if !failed {
 				loaded = true
@@ -2399,72 +2499,91 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 			}
 			for key, in1 := range i.node.Instructions {
 				var fieldType FieldType
+				var advancedFieldType AdvancedFieldType
+				var va FieldOptions
+				var ok bool
 				i.g.DB.RLock()
-				va, ok := i.g.DB.LT[i.node.TypeName].Fields[key]
+				va, ok = i.g.DB.LT[i.node.TypeName].Fields[key]
 				if !ok {
 					errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 					i.iterator.Close()
 					i.g.DB.RUnlock()
 					return
 				}
-				fieldType = i.g.DB.FT[va.FieldType]
-				i.g.DB.RUnlock()
-				var buffer bytes.Buffer
-				buffer.WriteString(i.g.DB.Options.DBName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(i.node.TypeName)
-				buffer.WriteString(i.g.DB.KV.D)
-				if i.currentDirection == "->" {
-					buffer.Write(ka[3])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[4])
+				if !va.Advanced {
+					fieldType = i.g.DB.FT[va.FieldType]
 				} else {
-					buffer.Write(ka[4])
-					buffer.WriteString(i.g.DB.KV.D)
-					buffer.Write(ka[3])
+					advancedFieldType = i.g.DB.AFT[va.FieldType]
 				}
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(key)
-				item2, err := i.txn.Get(buffer.Bytes())
-				if err != nil && err == badger.ErrKeyNotFound {
-				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-					errs = append(errs, err)
-					i.iterator.Close()
-					return
-				} else if err == nil && item2 != nil {
-					var val []byte
+				if !va.Advanced {
+					i.g.DB.RUnlock()
+					var buffer bytes.Buffer
+					buffer.WriteString(i.g.DB.Options.DBName)
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(i.node.TypeName)
+					buffer.WriteString(i.g.DB.KV.D)
+					if i.currentDirection == "->" {
+						buffer.Write(ka[3])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[4])
+					} else {
+						buffer.Write(ka[4])
+						buffer.WriteString(i.g.DB.KV.D)
+						buffer.Write(ka[3])
+					}
+					buffer.WriteString(i.g.DB.KV.D)
+					buffer.WriteString(key)
+					item2, err := i.txn.Get(buffer.Bytes())
+					if err != nil && err == badger.ErrKeyNotFound {
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						errs = append(errs, err)
+						i.iterator.Close()
+						return
+					} else if err == nil && item2 != nil {
+						var val []byte
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return
+							}
+							val, err = item2.ValueCopy(nil)
+							if err != nil {
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								i.iterator.Close()
+								errs = append(errs, err)
+								return
+							}
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					}
+				} else {
 					for _, in2 := range in1 {
-						rawParam, err := fieldType.Set(in2.param)
-						if err != nil {
-							errs = append(errs, err)
-							return
-						}
-						val, err = item2.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-							i.iterator.Close()
-							errs = append(errs, err)
-							return
-						}
-						ok, err := fieldType.Compare(in2.action, val, rawParam)
-						if err != nil {
-							errs = append(errs, err)
-							i.iterator.Close()
+						ok, err := advancedFieldType.Compare(i.txn, i.g.DB, false, i.node.TypeName, d[KeyValueKey{Main: "ID"}], d[KeyValueKey{Main: "ID"}], key, in2.action, in2.param)
+						if len(err) >= 1 {
+							errs = append(errs, err...)
 							return
 						}
 						if !ok {
 							failed = true
-							break
-						}
-					}
-					if !failed {
-						if i.node.saveName != "" {
-							d[KeyValueKey{Main: key}] = val
 						}
 					}
 				}
-
 			}
 			if !failed {
 				loaded = true
@@ -2584,56 +2703,76 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 	failed := false
 	for key, in1 := range i.node.Instructions {
 		var fieldType FieldType
+		var advancedFieldType AdvancedFieldType
+		var va FieldOptions
+		var ok bool
 		i.g.DB.RLock()
-		va, ok := i.g.DB.OT[i.node.TypeName].Fields[key]
+		va, ok = i.g.DB.OT[i.node.TypeName].Fields[key]
 		if !ok {
 			errs = append(errs, errors.New("Field name -"+key+"- not found in database"))
 			i.g.DB.RUnlock()
 			return
 		}
-		fieldType = i.g.DB.FT[va.FieldType]
-		i.g.DB.RUnlock()
-		var buffer bytes.Buffer
-		buffer.WriteString(i.g.DB.Options.DBName)
-		buffer.WriteString(i.g.DB.KV.D)
-		buffer.WriteString(i.node.TypeName)
-		buffer.WriteString(i.g.DB.KV.D)
-		buffer.Write(to)
-		buffer.WriteString(i.g.DB.KV.D)
-		buffer.WriteString(key)
-		item2, err := i.txn.Get(buffer.Bytes())
-		if err != nil && err == badger.ErrKeyNotFound {
-		} else if err != nil && err != badger.ErrKeyNotFound {
-			Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
-			errs = append(errs, err)
-			return
-		} else if err == nil && item2 != nil {
-			var val []byte
+		if !va.Advanced {
+			fieldType = i.g.DB.FT[va.FieldType]
+		} else {
+			advancedFieldType = i.g.DB.AFT[va.FieldType]
+		}
+		if !va.Advanced {
+			i.g.DB.RUnlock()
+			var buffer bytes.Buffer
+			buffer.WriteString(i.g.DB.Options.DBName)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.WriteString(i.node.TypeName)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.Write(to)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.WriteString(key)
+			item2, err := i.txn.Get(buffer.Bytes())
+			if err != nil && err == badger.ErrKeyNotFound {
+			} else if err != nil && err != badger.ErrKeyNotFound {
+				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+				errs = append(errs, err)
+				return
+			} else if err == nil && item2 != nil {
+				var val []byte
+				for _, in2 := range in1 {
+					rawParam, err := fieldType.Set(in2.param)
+					if err != nil {
+						errs = append(errs, err)
+						return
+					}
+					val, err = item2.ValueCopy(nil)
+					if err != nil {
+						Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+						errs = append(errs, err)
+						return
+					}
+					ok, err := fieldType.Compare(in2.action, val, rawParam)
+					if err != nil {
+						errs = append(errs, err)
+						return
+					}
+					if !ok {
+						failed = true
+						break
+					}
+				}
+				if !failed {
+					if i.node.saveName != "" {
+						a[KeyValueKey{Main: key}] = val
+					}
+				}
+			}
+		} else {
 			for _, in2 := range in1 {
-				rawParam, err := fieldType.Set(in2.param)
-				if err != nil {
-					errs = append(errs, err)
-					return
-				}
-				val, err = item2.ValueCopy(nil)
-				if err != nil {
-					Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
-					errs = append(errs, err)
-					return
-				}
-				ok, err := fieldType.Compare(in2.action, val, rawParam)
-				if err != nil {
-					errs = append(errs, err)
+				ok, err := advancedFieldType.Compare(i.txn, i.g.DB, true, i.node.TypeName, to, to, key, in2.action, in2.param)
+				if len(err) >= 1 {
+					errs = append(errs, err...)
 					return
 				}
 				if !ok {
 					failed = true
-					break
-				}
-			}
-			if !failed {
-				if i.node.saveName != "" {
-					a[KeyValueKey{Main: key}] = val
 				}
 			}
 		}

@@ -41,16 +41,19 @@ func (u *User) addActivity(date time.Time, deviceID string, ind uint64) (index u
 
 func (u *User) populateActivity() (errs []error) {
 	errs = make([]error, 0)
+	if u.activities.Field != "" {
+		return
+	}
+	u.DB.RLock()
 	af := u.DB.AFT["array"]
+	u.DB.RUnlock()
 	if u.ID == uint64(0) {
 		errs = append(errs, errors.New("User object does not have an ID"))
 		return
 	}
-	if u.activities.Field == "" {
-		var k interface{}
-		k, errs = af.New(u.DB, 3, "User", "activities", true, u.ID)
-		u.activities = k.(FieldTypeArrayValue)
-	}
+	var k interface{}
+	k, errs = af.New(u.DB, 3, "User", "activities", true, u.ID)
+	u.activities = k.(FieldTypeArrayValue)
 	return
 }
 
@@ -63,11 +66,49 @@ type Post struct {
 
 //Friend Link
 type Friend struct {
-	DB       *DB
-	FROM     uint64
-	TO       uint64
-	created  time.Time
-	accepted bool
+	DB         *DB
+	FROM       uint64
+	TO         uint64
+	created    time.Time
+	accepted   bool
+	activities FieldTypeArrayValue
+}
+
+func (f *Friend) addActivity(date time.Time, deviceID string, ind uint64) (index uint64, errs []error) {
+	errs = f.populateActivity()
+	if len(errs) > 0 {
+		return
+	}
+	a := Activities{}
+	a.date = date
+	a.deviceID = deviceID
+	index, err := f.activities.Set(a, ind)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return
+}
+
+func (f *Friend) populateActivity() (errs []error) {
+	errs = make([]error, 0)
+	if f.activities.Field != "" {
+		return
+	}
+	f.DB.RLock()
+	af := f.DB.AFT["array"]
+	f.DB.RUnlock()
+	if f.FROM == uint64(0) {
+		errs = append(errs, errors.New("Friend Link does not have a FROM"))
+		return
+	}
+	if f.TO == uint64(0) {
+		errs = append(errs, errors.New("Friend Link does not have a TO"))
+		return
+	}
+	var k interface{}
+	k, errs = af.New(f.DB, 3, "Friend", "activities", false, f.FROM, f.TO)
+	f.activities = k.(FieldTypeArrayValue)
+	return
 }
 
 //Author Link
@@ -533,6 +574,51 @@ func GetFriendLinkOption() LinkTypeOptions {
 	fl.Fields = make(map[string]FieldOptions)
 	fl.Fields["accepted"] = FieldOptions{FieldType: "bool"}
 	fl.Fields["created"] = FieldOptions{FieldType: "date"}
+
+	arrayOptions := ArrayOptions{}
+	arrayOptions.New = func() interface{} {
+		ret := Activities{}
+		return ret
+	}
+	arrayOptions.Set = func(data interface{}, db *DB) (ret map[string][]byte, err error) {
+		ret = make(map[string][]byte)
+		act := data.(Activities)
+		ret["date"], err = db.FT["date"].Set(act.date)
+		if act.deviceID != "" {
+			ret["deviceID"], err = db.FT["string"].Set(act.deviceID)
+		}
+		return
+	}
+	arrayOptions.Get = func(data map[string][]byte, db *DB) (interface{}, error) {
+		ret := Activities{}
+		var err error
+		if f, ok := data["deviceID"]; ok {
+			k, er := db.FT["string"].Get(f)
+			err = er
+			if err != nil {
+				return nil, err
+			}
+			ret.deviceID = k.(string)
+		}
+
+		if f, ok := data["date"]; ok {
+			k, er := db.FT["date"].Get(f)
+			err = er
+			if err != nil {
+				return nil, err
+			}
+			ret.date = k.(time.Time)
+		}
+
+		return ret, err
+	}
+	arrayOptions.Fields = make(map[string]string)
+	arrayOptions.Fields["deviceID"] = "string"
+	arrayOptions.Fields["date"] = "date"
+	m := FieldOptions{Indexed: false, Advanced: true, FieldType: "array"}
+	m.FieldTypeOptions = make([]interface{}, 0)
+	m.FieldTypeOptions = append(m.FieldTypeOptions, arrayOptions)
+	fl.Fields["activities"] = m
 
 	return fl
 }
