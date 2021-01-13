@@ -308,6 +308,54 @@ func (s *SetterFactory) linkField(linkTypeName string, from uint64, to uint64, f
 	return e
 }
 
+func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field string, val []byte, fieldTypeOptions FieldOptions) []error {
+	errs := make([]error, 0)
+	if !fieldTypeOptions.Advanced {
+		if fieldTypeOptions.Indexed {
+			if val != nil {
+				s.DB.KV.WriteDelete(s.DB.Options.DBName, object, field, string(val), string(objectID))
+			} else {
+				txn := s.DB.KV.DB.NewTransaction(true)
+				defer txn.Discard()
+				opt := badger.DefaultIteratorOptions
+				opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + field)
+				opt.PrefetchSize = 10
+				opt.PrefetchValues = false
+				iterator := txn.NewIterator(opt)
+				defer iterator.Close()
+				iterator.Seek(opt.Prefix)
+				var k []byte
+				var kArray [][]byte
+				for iterator.ValidForPrefix(opt.Prefix) {
+					item := iterator.Item()
+					k = item.KeyCopy(k)
+					kArray = bytes.Split(k, []byte(s.DB.KV.D))
+					if string(kArray[4]) == string(objectID) {
+						err := txn.Delete(k)
+						if err != nil {
+							errs = append(errs, err)
+						}
+						break
+					}
+					iterator.Next()
+				}
+			}
+		}
+		s.DB.KV.WriteDelete(s.DB.Options.DBName, object, string(objectID), field)
+	} else {
+		s.DB.RLock()
+		advancedFieldType := s.DB.AFT[fieldTypeOptions.FieldType]
+		s.DB.RUnlock()
+		txn := s.DB.KV.DB.NewTransaction(true)
+		defer txn.Discard()
+		errs2 := advancedFieldType.Delete(txn, s.DB, true, object, objectID, objectID, field)
+		if len(errs) > 0 {
+			errs = append(errs, errs2...)
+		}
+	}
+	return errs
+}
+
 func (s *SetterFactory) Start(db *DB, numOfRuners int, inputChannelLength int) {
 	s.DB = db
 	s.Input = make(chan SetterJob, inputChannelLength)
@@ -409,6 +457,43 @@ func (s *SetterFactory) Run() {
 			}
 			err := s.linkField(one, two, three, four, job.Data[4])
 			er.Errors = err
+			if job.Ret != nil {
+				job.Ret <- er
+				close(job.Ret)
+			}
+		case "delete.object.field":
+			object, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			field, ok := job.Data[2].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			var val []byte
+			var err2 error
+			s.DB.RLock()
+			objectID, err := s.DB.FT["uint64"].Set(job.Data[1])
+			fieldTypeOptions, ok := s.DB.OT[object].Fields[field]
+			if len(job.Data) >= 4 {
+				val, err2 = s.DB.FT[fieldTypeOptions.FieldType].Set(job.Data[3])
+			}
+			s.DB.RUnlock()
+			if err != nil {
+				er.Errors = append(er.Errors, err)
+			}
+			if err2 != nil {
+				er.Errors = append(er.Errors, err2)
+			}
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Field not found for this Object in database"))
+			}
+			if len(er.Errors) == 0 {
+				errs := s.DeleteObjectField(object, objectID, field, val, fieldTypeOptions)
+				if len(errs) > 0 {
+					er.Errors = append(er.Errors, errs...)
+				}
+			}
 			if job.Ret != nil {
 				job.Ret <- er
 				close(job.Ret)

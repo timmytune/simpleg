@@ -29,6 +29,7 @@ type AdvancedFieldType interface {
 	Set(db *DB, params ...interface{}) []error
 	Get(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error)
 	Compare(*badger.Txn, *DB, bool, string, []byte, []byte, string, string, interface{}) (bool, []error)
+	Delete(*badger.Txn, *DB, bool, string, []byte, []byte, string) []error
 }
 
 type FieldTypeOptions struct {

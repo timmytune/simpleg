@@ -736,3 +736,7 @@ func (f *FieldTypeArray) Compare(txn *badger.Txn, db *DB, isObj bool, typ string
 	//errs = append(errs, errors.New("Invalid instruction"))
 	//return false, errs
 }
+
+func (f *FieldTypeArray) Delete(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string) []error {
+	return nil
+}

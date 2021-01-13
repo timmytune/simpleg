@@ -600,7 +600,6 @@ func GetFriendLinkOption() LinkTypeOptions {
 			}
 			ret.deviceID = k.(string)
 		}
-
 		if f, ok := data["date"]; ok {
 			k, er := db.FT["date"].Get(f)
 			err = er
@@ -609,7 +608,6 @@ func GetFriendLinkOption() LinkTypeOptions {
 			}
 			ret.date = k.(time.Time)
 		}
-
 		return ret, err
 	}
 	arrayOptions.Fields = make(map[string]string)
