@@ -7,7 +7,6 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
-	"time"
 
 	badger "github.com/dgraph-io/badger/v2"
 )
@@ -317,7 +316,6 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 		//log.Print(i)
 		if i.indexed {
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
-
 			if string(kArray[2]) != i.field {
 				i.iterator.Next()
 				item = i.iterator.Item()
@@ -378,9 +376,11 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			}
 
 		} else {
+
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
 				return r, false, nil
 			}
+
 			//var v []byte
 			var buffer bytes.Buffer
 			buffer.WriteString(i.db.Options.DBName)
@@ -401,7 +401,6 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
 					return nil, false, err
 				}
-
 				boa := false
 				for _, ins := range i.query {
 					rawQueryData, err := i.fieldType.Set(ins.param)
@@ -648,13 +647,11 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 
 		}
 	}
-
 	iterator := iteratorLoader{}
 	errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn)
 	defer iterator.close()
 	delete(node.Instructions, node.index)
 	for d, b, e := iterator.next(); b; d, b, e = iterator.next() {
-
 		failed := false
 		if e != nil {
 			errs = append(errs, e)
@@ -1232,13 +1229,7 @@ func (g *GetterFactory) Run() {
 		ret := GetterRet{}
 		ret.Errors = make([]error, 0)
 		data = make(map[string]interface{})
-		if txn == nil {
-			txn = g.DB.KV.DB.NewTransaction(false)
-		}
-		if uint64(time.Now().Unix()) > (txn.ReadTs() + g.transactionValidityDuration) {
-			txn.Discard()
-			txn = g.DB.KV.DB.NewTransaction(false)
-		}
+		txn = g.DB.KV.DB.NewTransaction(false)
 		for _, val := range job.Instructions {
 			switch val.Action {
 			case "return":

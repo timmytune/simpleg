@@ -41,19 +41,19 @@ func TestSet(t *testing.T) {
 
 func TestGetNextID(t *testing.T) {
 	// should be able to add a key and value
-	if id, err := s.GetNextID("user"); err != nil {
+	if id, err := s.GetNextID("user", 100); err != nil {
 		t.Error("Set operation failed:", err)
 	} else {
 		log.Print("ID gotten from getID -- ", int(id))
 	}
 
-	if id, err := s.GetNextID("user"); err != nil {
+	if id, err := s.GetNextID("user", 20); err != nil {
 		t.Error("Set operation failed:", err)
 	} else {
 		log.Print("ID2 gotten from getID -- ", int(id))
 	}
 
-	if id, err := s.GetNextID("simi"); err != nil {
+	if id, err := s.GetNextID("simi", 20); err != nil {
 		t.Error("Set operation failed:", err)
 	} else {
 		log.Print("ID3 gotten from getID -- ", int(id))
@@ -94,10 +94,11 @@ func TestWrite2(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.Writer2.Write(IntToBytes(rand.Intn(10000000000)), "key", "key2", "key3", "key4--", strconv.Itoa(rand.Intn(10000000000)))
-			//data := GetWriteData("key", "key2", "key3", "key4", strconv.Itoa(rand.Intn(10000000000)), IntToBytes(rand.Intn(10000000000)), "^")
-			//data := "key" + "^" + "key2" + "^" + "key3" + "^" + strconv.Itoa(rand.Intn(10000000000))
-			//WriterInput <- data // WriterData{[]byte(data), []byte("value"), true}
+			err := s.Writer2.Write(IntToBytes(rand.Intn(10000000000)), "key9", "key2", "key3", "key4--", strconv.Itoa(rand.Intn(10000000000)))
+			if err != nil {
+				t.Error("Writer 2 operation failed:", err)
+			}
+
 		}()
 	}
 	wg.Wait()
@@ -151,26 +152,9 @@ func TestRead(t *testing.T) {
 
 func TestStream(t *testing.T) {
 	start := time.Now()
-	// should be able to add a key and value
-
-	count := 0
-	// fu := func(item *badger.Item) bool {
-	// 	v, _ := item.ValueCopy(nil)
-	// 	val, _ := BytesToInt(v)
-
-	// 	if val%5000 == 0 {
-	// 		count++
-	// 		return true
-	// 	}
-	// 	return false
-	// }
-	data, err := s.Stream([]string{"key", "key2"}, nil)
-
+	data, err := s.Stream([]string{"key9", "key2"}, nil)
 	elapsed := time.Since(start)
-
-	log.Print(data)
-	log.Print(count)
-
+	log.Print("LLLLLLLLLLLLLLLLLLLLLLLLL", data)
 	if err != nil {
 		t.Error("Set operation failed:", err)
 	}

@@ -206,9 +206,7 @@ func (s *KV) Write(one, two, three, four, five string, value []byte) error {
 
 func (s *KV) WriteDelete(key ...string) error {
 	var err error
-
 	err = s.Writer.Delete([]byte(strings.Join(key, s.D)))
-
 	return err
 }
 

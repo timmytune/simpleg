@@ -170,6 +170,29 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	return
 }
 
+func (db *DB) Delete(ins string, d ...interface{}) (s SetterRet) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in DB.Set ")
+			s = SetterRet{}
+			if s.Errors == nil {
+				s.Errors = make([]error, 0)
+			}
+			switch x := r.(type) {
+			case string:
+				s.Errors = append(s.Errors, errors.New(x))
+			case error:
+				s.Errors = append(s.Errors, x)
+			default:
+				s.Errors = append(s.Errors, errors.New("Unknown error was thrown"))
+			}
+		}
+	}()
+	s = db.Set(ins, d...)
+	return
+}
+
 func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 	q := Query{DB: db}
 	defer func() {

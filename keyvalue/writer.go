@@ -13,6 +13,7 @@ type WriterData struct {
 	Key   []byte
 	Value []byte
 	Type  bool
+	err   chan error
 }
 
 type BatchWriter struct {
@@ -27,19 +28,26 @@ func GetWriteData(k1, k2, k3, k4, k5 string, value []byte, seprator string) Writ
 	if k5 != "" {
 		data = data + seprator + k5
 	}
-
-	return WriterData{[]byte(data), value, true}
+	e := make(chan error, 2)
+	return WriterData{[]byte(data), value, true, e}
 }
 
-func (b *BatchWriter) Write(value []byte, k ...string) {
-	//b.lock.Lock()
-	b.input <- WriterData{[]byte(strings.Join(k, b.kv.D)), value, true}
-	//b.lock.Unlock()
-
+func (b *BatchWriter) Write(value []byte, k ...string) error {
+	e := make(chan error, 2)
+	w := WriterData{[]byte(strings.Join(k, b.kv.D)), value, true, e}
+	b.input <- w
+	err := <-w.err
+	close(w.err)
+	return err
 }
 
-func (b *BatchWriter) Delete(key ...string) {
-	b.input <- WriterData{Key: []byte(strings.Join(key, b.kv.D)), Type: false}
+func (b *BatchWriter) Delete(key ...string) error {
+	e := make(chan error, 2)
+	w := WriterData{Key: []byte(strings.Join(key, b.kv.D)), Type: false, err: e}
+	b.input <- w
+	err := <-w.err
+	close(w.err)
+	return err
 }
 
 func (b *BatchWriter) Go(inputLength int, db *badger.DB, kv *KV, length int) chan WriterData {
@@ -55,11 +63,12 @@ func (b *BatchWriter) Go(inputLength int, db *badger.DB, kv *KV, length int) cha
 	b.kv = kv
 	return input
 }
+
 func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan bool, db *badger.DB) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in   BatchWriter.mainRoutine ")
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in BatchWriter.mainRoutine ")
 			b.mainRoutine(id, input, internal, db)
 		}
 	}()
@@ -71,18 +80,31 @@ func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan b
 			if transaction == nil {
 				transaction = db.NewTransaction(true)
 			}
-			err := transaction.Set(data.Key, data.Value)
+			var err error
+			if data.Type {
+				err = transaction.Set(data.Key, data.Value)
+			} else {
+				err = transaction.Delete(data.Key)
+			}
 			transactionCount++
 			if err != nil {
-				transaction.Commit()
+				err = transaction.Commit()
+				if err != nil {
+					Log.Error().Interface("error", err).Interface("transaction", transaction).Msg("Unable to commit write transaction")
+				}
 				transaction = db.NewTransaction(true)
 				if data.Type {
-					transaction.Set(data.Key, data.Value)
+					err = transaction.Set(data.Key, data.Value)
 				} else {
-					transaction.Delete(data.Key)
+					err = transaction.Delete(data.Key)
 				}
-				transactionCount = 1
+				if err != nil {
+					Log.Error().Interface("error", err).Str("key", string(data.Key)).Str("value", string(data.Value)).Msg("Unable to set key")
+				} else {
+					transactionCount = 1
+				}
 			}
+			data.err <- err
 			if !ok && len(input) == 0 {
 				b.lock.Lock()
 				b.shotdown = true
@@ -90,13 +112,19 @@ func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan b
 			}
 		case _, ok := <-internal:
 			if transactionCount > 0 && len(input) == 0 {
-				transaction.Commit()
+				err := transaction.Commit()
+				if err != nil {
+					Log.Error().Interface("error", err).Interface("transaction", transaction).Msg("Unable to commit write transaction")
+				}
 				transaction = db.NewTransaction(true)
 				transactionCount = 0
 			}
 			if !ok {
 				if transaction != nil {
-					transaction.Commit()
+					err := transaction.Commit()
+					if err != nil {
+						Log.Error().Interface("error", err).Interface("transaction", transaction).Msg("Unable to commit write transaction")
+					}
 				}
 				return
 			}

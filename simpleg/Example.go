@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"time"
 )
 
@@ -135,7 +136,7 @@ func GetUserOption() ObjectTypeOptions {
 		e := make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Get User ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -210,7 +211,7 @@ func GetUserOption() ObjectTypeOptions {
 		e = make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Set User ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -239,7 +240,7 @@ func GetUserOption() ObjectTypeOptions {
 			u[KeyValueKey{Main: "email"}], _ = db.FT["string"].Set(d.email)
 		}
 		u[KeyValueKey{Main: "active"}], _ = db.FT["bool"].Set(d.active)
-		if d.age > 0 {
+		if d.age > int64(0) {
 			u[KeyValueKey{Main: "age"}], _ = db.FT["int64"].Set(d.age)
 		}
 		return
@@ -298,7 +299,6 @@ func GetUserOption() ObjectTypeOptions {
 	uo.Fields["email"] = FieldOptions{Indexed: true, Advanced: false, FieldType: "string", Validate: fv.Email("email", true)}
 	uo.Fields["active"] = FieldOptions{Indexed: false, Advanced: false, FieldType: "bool", Validate: nil}
 	uo.Fields["age"] = FieldOptions{Indexed: false, FieldType: "int64", Validate: fv.Int64("age", 10, 28)}
-
 	arrayOptions := ArrayOptions{}
 	arrayOptions.New = func() interface{} {
 		ret := Activities{}
@@ -345,7 +345,6 @@ func GetUserOption() ObjectTypeOptions {
 	m.FieldTypeOptions = make([]interface{}, 0)
 	m.FieldTypeOptions = append(m.FieldTypeOptions, arrayOptions)
 	uo.Fields["activities"] = m
-
 	return uo
 }
 
@@ -389,7 +388,7 @@ func GetPostOption() ObjectTypeOptions {
 		e = make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Get Post ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -460,7 +459,7 @@ func GetFriendLinkOption() LinkTypeOptions {
 		e := make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Get Friend Link ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -521,7 +520,7 @@ func GetFriendLinkOption() LinkTypeOptions {
 		e = make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Set Friend Link ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -570,11 +569,9 @@ func GetFriendLinkOption() LinkTypeOptions {
 		}
 		return i, e
 	}
-	//fv := FieldValidation{}
 	fl.Fields = make(map[string]FieldOptions)
 	fl.Fields["accepted"] = FieldOptions{FieldType: "bool"}
 	fl.Fields["created"] = FieldOptions{FieldType: "date"}
-
 	arrayOptions := ArrayOptions{}
 	arrayOptions.New = func() interface{} {
 		ret := Activities{}
@@ -634,7 +631,7 @@ func GetAuthorLinkOption() LinkTypeOptions {
 		e := make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Get Author Link ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -679,7 +676,7 @@ func GetAuthorLinkOption() LinkTypeOptions {
 		e = make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Set Author Link ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -741,7 +738,7 @@ func GetLikeLinkOption() LinkTypeOptions {
 		e := make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User Object type", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Get Like link ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)
@@ -786,7 +783,7 @@ func GetLikeLinkOption() LinkTypeOptions {
 		e = make([]error, 0)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Println("Recovered in Get User", r)
+				Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Set Like link ")
 				switch x := r.(type) {
 				case string:
 					err := errors.New(x)

@@ -3,6 +3,7 @@ package simpleg
 import (
 	"bytes"
 	"errors"
+	"log"
 	"runtime/debug"
 
 	badger "github.com/dgraph-io/badger/v2"
@@ -36,8 +37,8 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, fieldName, string(id)))
 		//If item does not exist in the db just create the new index only
 		if oldErr != nil && oldErr == badger.ErrKeyNotFound {
-			s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
-			return nil
+			err = s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
+			return err
 		}
 		//If another error that is not atype badger.ErrKeyNotFound just return the error
 		if oldErr != nil && oldErr != badger.ErrKeyNotFound {
@@ -53,10 +54,10 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 			return nil
 		}
 		//Delete old index
-		s.DB.KV.Writer2.Delete(s.DB.Options.DBName, objectType, fieldName, string(oldValue), string(id))
+		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, objectType, fieldName, string(oldValue), string(id))
 		//create new index
 
-		s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
+		err = s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
 	}
 	return err
 }
@@ -99,22 +100,25 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 			return i, append(e, ee)
 		}
 		m[KeyValueKey{Main: "ID"}], _ = ftUint64.Set(i)
-		s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "ID"}], s.DB.Options.DBName, typ, "ID", string(m[KeyValueKey{Main: "ID"}]), string(m[KeyValueKey{Main: "ID"}]))
+		er = s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "ID"}], s.DB.Options.DBName, typ, "ID", string(m[KeyValueKey{Main: "ID"}]), string(m[KeyValueKey{Main: "ID"}]))
+		if er != nil {
+			e = append(e, er)
+			return i, e
+		}
 	}
-
 	ib = m[KeyValueKey{Main: "ID"}]
 	delete(m, KeyValueKey{Main: "ID"})
-
 	for key, v := range m {
-		er = s.setObjectFieldIndex(tnx, typ, key.Main, v, ib)
+		er := s.setObjectFieldIndex(tnx, typ, key.Main, v, ib)
 		if er == nil {
-			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(ib), key.GetFullString(s.DB.KV.D))
+			er = s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(ib), key.GetFullString(s.DB.KV.D))
+			if er != nil {
+				e = append(e, er)
+			}
 		} else {
 			e = append(e, er)
 		}
-
 	}
-
 	return i, e
 }
 
@@ -141,9 +145,7 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 	}
 
 	tnx := s.DB.KV.DB.NewTransaction(false)
-	defer func() {
-		tnx.Discard()
-	}()
+	defer tnx.Discard()
 
 	from, ok := m[KeyValueKey{Main: "FROM"}]
 	if !ok {
@@ -177,13 +179,20 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 		delete(m, KeyValueKey{Main: "FROM"})
 		delete(m, KeyValueKey{Main: "TO"})
 		for key, v := range m {
-			s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(from), string(to), key.GetFullString(s.DB.KV.D))
+			err := s.DB.KV.Writer2.Write(v, s.DB.Options.DBName, typ, string(from), string(to), key.GetFullString(s.DB.KV.D))
+			if err != nil {
+				e = append(e, err)
+			}
 		}
-
-		s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED-", string(to), string(from))
-		s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED+", string(from), string(to))
+		err := s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED-", string(to), string(from))
+		if err != nil {
+			e = append(e, err)
+		}
+		err = s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED+", string(from), string(to))
+		if err != nil {
+			e = append(e, err)
+		}
 	}
-
 	return e
 }
 
@@ -232,7 +241,10 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 	}
 	er = s.setObjectFieldIndex(tnx, objectTypeName, fieldName, fieldNewValueValidatedbytes, idRaw)
 	if er == nil {
-		s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, objectTypeName, string(idRaw), fieldName)
+		er = s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, objectTypeName, string(idRaw), fieldName)
+		if er != nil {
+			e = append(e, er)
+		}
 	} else {
 		e = append(e, er)
 	}
@@ -304,7 +316,10 @@ func (s *SetterFactory) linkField(linkTypeName string, from uint64, to uint64, f
 		e = append(e, err)
 	}
 
-	s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, linkTypeName, string(fromRaw), string(toRaw), fieldName)
+	err = s.DB.KV.Writer2.Write(fieldNewValueValidatedbytes, s.DB.Options.DBName, linkTypeName, string(fromRaw), string(toRaw), fieldName)
+	if err != nil {
+		e = append(e, err)
+	}
 	return e
 }
 
@@ -313,7 +328,7 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 	if !fieldTypeOptions.Advanced {
 		if fieldTypeOptions.Indexed {
 			if val != nil {
-				s.DB.KV.WriteDelete(s.DB.Options.DBName, object, field, string(val), string(objectID))
+				s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, field, string(val), string(objectID))
 			} else {
 				txn := s.DB.KV.DB.NewTransaction(true)
 				defer txn.Discard()
@@ -341,7 +356,10 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 				}
 			}
 		}
-		s.DB.KV.WriteDelete(s.DB.Options.DBName, object, string(objectID), field)
+		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, string(objectID), field)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	} else {
 		s.DB.RLock()
 		advancedFieldType := s.DB.AFT[fieldTypeOptions.FieldType]
@@ -353,6 +371,192 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 			errs = append(errs, errs2...)
 		}
 	}
+	return errs
+}
+
+func (s *SetterFactory) DeleteLinkField(object string, objectFrom []byte, objectTo []byte, field string, fieldTypeOptions FieldOptions) []error {
+	errs := make([]error, 0)
+	if !fieldTypeOptions.Advanced {
+		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, string(objectFrom), string(objectTo), field)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		s.DB.RLock()
+		advancedFieldType := s.DB.AFT[fieldTypeOptions.FieldType]
+		s.DB.RUnlock()
+		txn := s.DB.KV.DB.NewTransaction(true)
+		defer txn.Discard()
+		errs2 := advancedFieldType.Delete(txn, s.DB, false, object, objectFrom, objectTo, field)
+		if len(errs) > 0 {
+			errs = append(errs, errs2...)
+		}
+	}
+	return errs
+}
+
+func (s *SetterFactory) DeleteObject(object string, objectFrom []byte, objectTo []byte) []error {
+	errs := make([]error, 0)
+	s.DB.RLock()
+	link, ok := s.DB.LT[object]
+	s.DB.RUnlock()
+	if !ok {
+		errs = append(errs, errors.New("Link of type '"+object+"' not found in DB"))
+	}
+	txn := s.DB.KV.DB.NewTransaction(true)
+	defer txn.Discard()
+
+	opt := badger.DefaultIteratorOptions
+	opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectFrom) + s.DB.KV.D + string(objectTo))
+	opt.PrefetchSize = 10
+	opt.PrefetchValues = false
+	iterator := txn.NewIterator(opt)
+	defer iterator.Close()
+	iterator.Seek(opt.Prefix)
+	var k []byte
+	for iterator.ValidForPrefix(opt.Prefix) {
+		item := iterator.Item()
+		k = item.KeyCopy(k)
+		err := txn.Delete(k)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		iterator.Next()
+	}
+
+	if link.Type == 1 || link.Type == 2 {
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectTo) + s.DB.KV.D + string(objectFrom))
+		opt.PrefetchSize = 10
+		opt.PrefetchValues = false
+		iterator := txn.NewIterator(opt)
+		defer iterator.Close()
+		iterator.Seek(opt.Prefix)
+		var k []byte
+		for iterator.ValidForPrefix(opt.Prefix) {
+			item := iterator.Item()
+			k = item.KeyCopy(k)
+			err := txn.Delete(k)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			iterator.Next()
+		}
+	}
+	err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectFrom), string(objectTo))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectTo), string(objectFrom))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if link.Type == 1 || link.Type == 2 {
+		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectTo), string(objectFrom))
+		if err != nil {
+			errs = append(errs, err)
+		}
+		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectFrom), string(objectTo))
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for k, v := range link.Fields {
+		if v.Advanced {
+			s.DB.RLock()
+			aft := s.DB.AFT[v.FieldType]
+			s.DB.RUnlock()
+			es := aft.Delete(txn, s.DB, false, object, objectFrom, objectTo, k)
+			if link.Type == 1 || link.Type == 2 {
+				es = aft.Delete(txn, s.DB, false, object, objectTo, objectFrom, k)
+			}
+			errs = append(errs, es...)
+		}
+	}
+	return errs
+}
+
+func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []byte) []error {
+	errs := make([]error, 0)
+	s.DB.RLock()
+	link, ok := s.DB.LT[object]
+	s.DB.RUnlock()
+	if !ok {
+		errs = append(errs, errors.New("Link of type '"+object+"' not found in DB"))
+	}
+	txn := s.DB.KV.DB.NewTransaction(true)
+	defer txn.Discard()
+
+	opt := badger.DefaultIteratorOptions
+	opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectFrom) + s.DB.KV.D + string(objectTo))
+	opt.PrefetchSize = 10
+	opt.PrefetchValues = false
+	iterator := txn.NewIterator(opt)
+	defer iterator.Close()
+	iterator.Seek(opt.Prefix)
+	var k []byte
+	for iterator.ValidForPrefix(opt.Prefix) {
+		item := iterator.Item()
+		k = item.KeyCopy(k)
+		err := txn.Delete(k)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		iterator.Next()
+	}
+
+	if link.Type == 1 || link.Type == 2 {
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectTo) + s.DB.KV.D + string(objectFrom))
+		opt.PrefetchSize = 10
+		opt.PrefetchValues = false
+		iterator := txn.NewIterator(opt)
+		defer iterator.Close()
+		iterator.Seek(opt.Prefix)
+		var k []byte
+		for iterator.ValidForPrefix(opt.Prefix) {
+			item := iterator.Item()
+			k = item.KeyCopy(k)
+			err := txn.Delete(k)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			iterator.Next()
+		}
+	}
+	err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectFrom), string(objectTo))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectTo), string(objectFrom))
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	if link.Type == 1 || link.Type == 2 {
+		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectTo), string(objectFrom))
+		if err != nil {
+			errs = append(errs, err)
+		}
+		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectFrom), string(objectTo))
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for k, v := range link.Fields {
+		if v.Advanced {
+			s.DB.RLock()
+			aft := s.DB.AFT[v.FieldType]
+			s.DB.RUnlock()
+			es := aft.Delete(txn, s.DB, false, object, objectFrom, objectTo, k)
+			if link.Type == 1 || link.Type == 2 {
+				es = aft.Delete(txn, s.DB, false, object, objectTo, objectFrom, k)
+			}
+			errs = append(errs, es...)
+		}
+	}
+
 	return errs
 }
 
@@ -370,7 +574,6 @@ func (s *SetterFactory) Run() {
 
 	defer func() {
 		r := recover()
-
 		if r != nil {
 			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Setter.Run ")
 			if er.Errors == nil {
@@ -386,12 +589,12 @@ func (s *SetterFactory) Run() {
 			}
 			job.Ret <- er
 			close(job.Ret)
-
 			s.Run()
 		}
 	}()
 	for {
 		job = <-s.Input
+		er = SetterRet{Errors: make([]error, 0)}
 		switch job.Ins {
 		case "save.object":
 			one, ok := job.Data[0].(string)
@@ -488,7 +691,7 @@ func (s *SetterFactory) Run() {
 			if !ok {
 				er.Errors = append(er.Errors, errors.New("Field not found for this Object in database"))
 			}
-			if len(er.Errors) == 0 {
+			if len(er.Errors) < 1 {
 				errs := s.DeleteObjectField(object, objectID, field, val, fieldTypeOptions)
 				if len(errs) > 0 {
 					er.Errors = append(er.Errors, errs...)
@@ -498,7 +701,65 @@ func (s *SetterFactory) Run() {
 				job.Ret <- er
 				close(job.Ret)
 			}
-
+		case "delete.link.field":
+			object, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			field, ok := job.Data[3].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			s.DB.RLock()
+			objectFrom, err := s.DB.FT["uint64"].Set(job.Data[1])
+			objectTo, err2 := s.DB.FT["uint64"].Set(job.Data[2])
+			fieldTypeOptions, ok := s.DB.LT[object].Fields[field]
+			s.DB.RUnlock()
+			if err != nil {
+				er.Errors = append(er.Errors, err)
+			}
+			if err2 != nil {
+				er.Errors = append(er.Errors, err2)
+			}
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Field not found for this Link in database"))
+			}
+			if len(er.Errors) < 1 {
+				errs := s.DeleteLinkField(object, objectFrom, objectTo, field, fieldTypeOptions)
+				if len(errs) > 0 {
+					er.Errors = append(er.Errors, errs...)
+				}
+			}
+			if job.Ret != nil {
+				job.Ret <- er
+				close(job.Ret)
+			}
+		case "delete.link":
+			object, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+			}
+			s.DB.RLock()
+			objectFrom, err := s.DB.FT["uint64"].Set(job.Data[1])
+			objectTo, err2 := s.DB.FT["uint64"].Set(job.Data[2])
+			s.DB.RUnlock()
+			if err != nil {
+				er.Errors = append(er.Errors, err)
+			}
+			if err2 != nil {
+				er.Errors = append(er.Errors, err2)
+			}
+			if len(er.Errors) < 1 {
+				log.Print("00000000000000000 ", job.Data[1], job.Data[2])
+				errs := s.DeleteLink(object, objectFrom, objectTo)
+				if len(errs) > 0 {
+					er.Errors = append(er.Errors, errs...)
+				}
+			}
+			if job.Ret != nil {
+				job.Ret <- er
+				close(job.Ret)
+			}
 		default:
 			er.Errors = make([]error, 0)
 			er.Errors = append(er.Errors, errors.New("Invalid Instruction provided "+job.Ins))

@@ -172,6 +172,27 @@ func TestAll(t *testing.T) {
 	if len(ret.Errors) == 0 {
 		t.Error("simpleg.Update Failed Test got:", ret)
 	}
+
+	time.Sleep(time.Second * 1)
+
+	ret = db.Delete("delete.object.field", "User", uint64(2), "lastName")
+	if len(ret.Errors) != 0 {
+		t.Error("simpleg.Delete lastName Failed Test got:", ret)
+	}
+
+	time.Sleep(time.Second * 1)
+
+	retGet := db.Get("object.single", "User", uint64(2))
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Set Failed Test get user:", retGet)
+	}
+	user, ok := retGet.Data.(User)
+	if !ok {
+		t.Error("simpleg.Set Failed Test get user: convert ret to User", retGet)
+	} else {
+		log.Print("qqqqqqqq ", user.lastName)
+	}
+
 	//Get preexisting objects
 	//rand.Seed(time.Now().UnixNano())
 
@@ -196,14 +217,14 @@ func TestAll(t *testing.T) {
 	elapsed = time.Since(start)
 	Log.Printf("++++ Test Get Object took %s", elapsed)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 	//-----------------------------------------Get objects with raw query
 	start = time.Now()
 	q := db.Query()
 	n := NodeQuery{}
-	n.Name("da").Object("User").Q("age", ">=", int64(7)).Q("activities", "count-l", 15).Q("activities", "count-g", 4).Order("ID", "dsc").Limit(100)
+	n.Name("da").Object("User").Q("age", ">=", int64(7)).Q("activities", "count-l", 15).Q("activities", "count-g", 2).Order("ID", "dsc").Limit(100)
 	q.Do("object", n)
-	retGet := q.Return("array", "da")
+	retGet = q.Return("array", "da")
 	if len(retGet.Errors) > 0 {
 		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
 	} else {
@@ -212,7 +233,7 @@ func TestAll(t *testing.T) {
 
 	q = db.Query()
 	n = NodeQuery{}
-	n.Name("da").Object("User").Q("age", ">=", int64(7)).Q("activities", "date >", time.Now()).Order("ID", "dsc").Limit(100)
+	n.Name("da").Object("User").Q("age", ">=", int64(7)).Q("activities", "date <", time.Now()).Order("ID", "dsc").Limit(100)
 	q.Do("object", n)
 	retGet = q.Return("array", "da")
 	if len(retGet.Errors) > 0 {
@@ -310,9 +331,10 @@ func TestAll(t *testing.T) {
 	}
 	Log.Print("---- ddddddddddddd Test Get Link returned ", len(ret4.Data.([]interface{})))
 
+	time.Sleep(1 * time.Second)
 	laq := NodeQuery{}
 	la := db.Query()
-	laq.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(5))
+	laq.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2))
 	la.Do("link", laq)
 	lar := la.Return("array", "da")
 	if len(lar.Errors) > 0 {
@@ -440,7 +462,7 @@ func TestAll(t *testing.T) {
 		}
 		f.FROM = uint64(2)
 		f.TO = uint64(9 - i + 1)
-		f.accepted = false
+		f.accepted = true
 		if 2 != (9-i+1) && 0 != (9-i+1) {
 			r := db.Set("save.link", "Friend", f)
 			if len(r.Errors) > 0 {
@@ -458,7 +480,7 @@ func TestAll(t *testing.T) {
 		}
 		f2.TO = uint64(10)
 		f2.FROM = uint64(9 - i + 1)
-		f2.accepted = false
+		f2.accepted = true
 		if 10 != (9-i+1) && 0 != (9-i+1) {
 			r := db.Set("save.link", "Friend", f2)
 			if len(r.Errors) > 0 {
@@ -470,11 +492,34 @@ func TestAll(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
+	ret = db.Delete("delete.link.field", "Friend", uint64(2), uint64(7), "accepted")
+	if len(ret.Errors) != 0 {
+		t.Error("simpleg.Delete accepted Failed Test got:", ret)
+	}
+
+	ret = db.Delete("delete.link", "Friend", uint64(2), uint64(6))
+	if len(ret.Errors) != 0 {
+		t.Error("simpleg.Delete accepted Failed Test got:", ret)
+	}
+	time.Sleep(2 * time.Second)
+
 	n6 := NodeQuery{}
 	q6 := db.Query()
+	n6.Name("da").Link("Friend", "->").Limit(5).Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(7))
+	q6.Do("link", n6)
+	ret6 := q6.Return("single", "da", 0)
+	if len(ret6.Errors) > 0 {
+		t.Error("simpleg.Get Failed Test get Friend:", ret6.Errors)
+	} else {
+		friend := ret6.Data.(Friend)
+		log.Print("---- 4.4.4.4 ---- ", friend.accepted)
+	}
+
+	n6 = NodeQuery{}
+	q6 = db.Query()
 	n6.Name("da").Link("Friend", "->").Limit(5).Q("FROM", "==", uint64(2))
 	q6.Do("link", n6)
-	ret6 := q6.Return("array", "da")
+	ret6 = q6.Return("array", "da")
 	if len(ret6.Errors) > 0 {
 		t.Error("simpleg.Get Failed Test get Friend:", ret6.Errors)
 	} else {
@@ -725,6 +770,15 @@ func TestAll(t *testing.T) {
 		log.Print("---- cccc.5 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
 		log.Print("---- cccc.6 ---- ", len(retQuery.Data.(map[string]interface{})["like"].([]interface{})))
 		log.Print("---- cccc.7 ---- ", len(retQuery.Data.(map[string]interface{})["post"].([]interface{})))
+	}
+
+	n6 = NodeQuery{}
+	q6 = db.Query()
+	n6.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(6))
+	q6.Do("link", n6)
+	ret6 = q6.Return("single", "da", 0)
+	if len(ret6.Errors) == 0 {
+		t.Error("simpleg.Get Failed Test get Friend:", ret6.Data)
 	}
 
 }
