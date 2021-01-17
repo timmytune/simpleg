@@ -3,7 +3,6 @@ package simpleg
 import (
 	"bytes"
 	"errors"
-	"log"
 	"runtime/debug"
 
 	badger "github.com/dgraph-io/badger/v2"
@@ -335,16 +334,14 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 				opt := badger.DefaultIteratorOptions
 				opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + field)
 				opt.PrefetchSize = 10
-				opt.PrefetchValues = false
+				opt.PrefetchValues = true
 				iterator := txn.NewIterator(opt)
 				defer iterator.Close()
 				iterator.Seek(opt.Prefix)
-				var k []byte
-				var kArray [][]byte
 				for iterator.ValidForPrefix(opt.Prefix) {
 					item := iterator.Item()
-					k = item.KeyCopy(k)
-					kArray = bytes.Split(k, []byte(s.DB.KV.D))
+					k := item.KeyCopy(nil)
+					kArray := bytes.Split(k, []byte(s.DB.KV.D))
 					if string(kArray[4]) == string(objectID) {
 						err := txn.Delete(k)
 						if err != nil {
@@ -395,81 +392,76 @@ func (s *SetterFactory) DeleteLinkField(object string, objectFrom []byte, object
 	return errs
 }
 
-func (s *SetterFactory) DeleteObject(object string, objectFrom []byte, objectTo []byte) []error {
+func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 	errs := make([]error, 0)
 	s.DB.RLock()
-	link, ok := s.DB.LT[object]
+	objectType, ok := s.DB.OT[object]
+	links := s.DB.LT
 	s.DB.RUnlock()
 	if !ok {
 		errs = append(errs, errors.New("Link of type '"+object+"' not found in DB"))
 	}
 	txn := s.DB.KV.DB.NewTransaction(true)
 	defer txn.Discard()
+	for k, v := range links {
+		if v.From == object || v.To == object {
+			opt := badger.DefaultIteratorOptions
+			opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED+" + s.DB.KV.D + string(objectID))
+			opt.PrefetchSize = 10
+			opt.PrefetchValues = true
+			iterator := txn.NewIterator(opt)
+			defer iterator.Close()
+			iterator.Seek(opt.Prefix)
+			for iterator.ValidForPrefix(opt.Prefix) {
+				item := iterator.Item()
+				key := item.KeyCopy(nil)
+				kArray := bytes.Split(key, []byte(s.DB.KV.D))
+				es := s.DeleteLink(k, kArray[3], kArray[4])
+				if es != nil {
+					errs = append(errs, es...)
+				}
+				iterator.Next()
+			}
+			opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED-" + s.DB.KV.D + string(objectID))
+			iterator2 := txn.NewIterator(opt)
+			defer iterator2.Close()
+			iterator2.Seek(opt.Prefix)
+			for iterator2.ValidForPrefix(opt.Prefix) {
+				item := iterator2.Item()
+				key := item.KeyCopy(nil)
+				kArray := bytes.Split(key, []byte(s.DB.KV.D))
+				es := s.DeleteLink(k, kArray[3], kArray[4])
+				if es != nil {
+					errs = append(errs, es...)
+				}
+				iterator2.Next()
+			}
+		}
+	}
 
 	opt := badger.DefaultIteratorOptions
-	opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectFrom) + s.DB.KV.D + string(objectTo))
+	opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectID))
 	opt.PrefetchSize = 10
-	opt.PrefetchValues = false
-	iterator := txn.NewIterator(opt)
-	defer iterator.Close()
-	iterator.Seek(opt.Prefix)
+	opt.PrefetchValues = true
+	iterator3 := txn.NewIterator(opt)
+	defer iterator3.Close()
+	iterator3.Seek(opt.Prefix)
 	var k []byte
-	for iterator.ValidForPrefix(opt.Prefix) {
-		item := iterator.Item()
-		k = item.KeyCopy(k)
+	for iterator3.ValidForPrefix(opt.Prefix) {
+		item := iterator3.Item()
+		k = item.KeyCopy(nil)
 		err := txn.Delete(k)
 		if err != nil {
 			errs = append(errs, err)
 		}
-		iterator.Next()
+		iterator3.Next()
 	}
-
-	if link.Type == 1 || link.Type == 2 {
-		opt := badger.DefaultIteratorOptions
-		opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectTo) + s.DB.KV.D + string(objectFrom))
-		opt.PrefetchSize = 10
-		opt.PrefetchValues = false
-		iterator := txn.NewIterator(opt)
-		defer iterator.Close()
-		iterator.Seek(opt.Prefix)
-		var k []byte
-		for iterator.ValidForPrefix(opt.Prefix) {
-			item := iterator.Item()
-			k = item.KeyCopy(k)
-			err := txn.Delete(k)
-			if err != nil {
-				errs = append(errs, err)
-			}
-			iterator.Next()
-		}
-	}
-	err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectFrom), string(objectTo))
-	if err != nil {
-		errs = append(errs, err)
-	}
-	err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectTo), string(objectFrom))
-	if err != nil {
-		errs = append(errs, err)
-	}
-	if link.Type == 1 || link.Type == 2 {
-		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectTo), string(objectFrom))
-		if err != nil {
-			errs = append(errs, err)
-		}
-		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectFrom), string(objectTo))
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-	for k, v := range link.Fields {
+	for k, v := range objectType.Fields {
 		if v.Advanced {
 			s.DB.RLock()
 			aft := s.DB.AFT[v.FieldType]
 			s.DB.RUnlock()
-			es := aft.Delete(txn, s.DB, false, object, objectFrom, objectTo, k)
-			if link.Type == 1 || link.Type == 2 {
-				es = aft.Delete(txn, s.DB, false, object, objectTo, objectFrom, k)
-			}
+			es := aft.Delete(txn, s.DB, true, object, objectID, objectID, k)
 			errs = append(errs, es...)
 		}
 	}
@@ -490,14 +482,13 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 	opt := badger.DefaultIteratorOptions
 	opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectFrom) + s.DB.KV.D + string(objectTo))
 	opt.PrefetchSize = 10
-	opt.PrefetchValues = false
+	opt.PrefetchValues = true
 	iterator := txn.NewIterator(opt)
 	defer iterator.Close()
 	iterator.Seek(opt.Prefix)
-	var k []byte
 	for iterator.ValidForPrefix(opt.Prefix) {
 		item := iterator.Item()
-		k = item.KeyCopy(k)
+		k := item.KeyCopy(nil)
 		err := txn.Delete(k)
 		if err != nil {
 			errs = append(errs, err)
@@ -509,14 +500,13 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectTo) + s.DB.KV.D + string(objectFrom))
 		opt.PrefetchSize = 10
-		opt.PrefetchValues = false
+		opt.PrefetchValues = true
 		iterator := txn.NewIterator(opt)
 		defer iterator.Close()
 		iterator.Seek(opt.Prefix)
-		var k []byte
 		for iterator.ValidForPrefix(opt.Prefix) {
 			item := iterator.Item()
-			k = item.KeyCopy(k)
+			k := item.KeyCopy(nil)
 			err := txn.Delete(k)
 			if err != nil {
 				errs = append(errs, err)
@@ -750,8 +740,28 @@ func (s *SetterFactory) Run() {
 				er.Errors = append(er.Errors, err2)
 			}
 			if len(er.Errors) < 1 {
-				log.Print("00000000000000000 ", job.Data[1], job.Data[2])
 				errs := s.DeleteLink(object, objectFrom, objectTo)
+				if len(errs) > 0 {
+					er.Errors = append(er.Errors, errs...)
+				}
+			}
+			if job.Ret != nil {
+				job.Ret <- er
+				close(job.Ret)
+			}
+		case "delete.object":
+			object, ok := job.Data[0].(string)
+			if !ok {
+				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in query argument"))
+			}
+			s.DB.RLock()
+			objectID, err := s.DB.FT["uint64"].Set(job.Data[1])
+			s.DB.RUnlock()
+			if err != nil {
+				er.Errors = append(er.Errors, err)
+			}
+			if len(er.Errors) < 1 {
+				errs := s.DeleteObject(object, objectID)
 				if len(errs) > 0 {
 					er.Errors = append(er.Errors, errs...)
 				}

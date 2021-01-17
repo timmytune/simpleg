@@ -501,6 +501,11 @@ func TestAll(t *testing.T) {
 	if len(ret.Errors) != 0 {
 		t.Error("simpleg.Delete accepted Failed Test got:", ret)
 	}
+
+	ret = db.Delete("delete.object", "User", uint64(4))
+	if len(ret.Errors) != 0 {
+		t.Error("simpleg.Delete Object Failed Test got:", ret)
+	}
 	time.Sleep(2 * time.Second)
 
 	n6 := NodeQuery{}
@@ -772,13 +777,22 @@ func TestAll(t *testing.T) {
 		log.Print("---- cccc.7 ---- ", len(retQuery.Data.(map[string]interface{})["post"].([]interface{})))
 	}
 
-	n6 = NodeQuery{}
-	q6 = db.Query()
-	n6.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(6))
-	q6.Do("link", n6)
-	ret6 = q6.Return("single", "da", 0)
-	if len(ret6.Errors) == 0 {
-		t.Error("simpleg.Get Failed Test get Friend:", ret6.Data)
-	}
+	// n6 = NodeQuery{}
+	// q6 = db.Query()
+	// n6.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(6))
+	// q6.Do("link", n6)
+	// ret6 = q6.Return("single", "da", 0)
+	// if len(ret6.Errors) == 0 {
+	// 	t.Error("simpleg.Get Failed Test get Friend:", ret6.Data)
+	// }
+
+	// n6 = NodeQuery{}
+	// q6 = db.Query()
+	// n6.Name("da").Object("User").Q("ID", "==", uint64(4))
+	// q6.Do("object", n6)
+	// ret6 = q6.Return("single", "da", 0)
+	// if len(ret6.Errors) == 0 {
+	// 	t.Error("simpleg.Get Failed Test get User:", ret6.Data)
+	// }
 
 }
