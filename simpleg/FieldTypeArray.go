@@ -49,6 +49,88 @@ func (f *FieldTypeArrayValue) Set(v interface{}, index uint64) (uint64, error) {
 	return index, nil
 }
 
+func (f *FieldTypeArrayValue) Delete(index uint64, field string) []error {
+	errs := make([]error, 0)
+	if f.Type == "" {
+		errs = append(errs, errors.New("This field has not yet been initialized"))
+		return errs
+	}
+	txn := f.db.KV.DB.NewTransaction(true)
+	defer txn.Discard()
+	if index == uint64(0) {
+		f.db.RLock()
+		idRaw, err := f.db.FT["uint64"].Set(f.TypeID)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		idToRaw, err := f.db.FT["uint64"].Set(f.TypeIDTO)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		es := f.db.AFT["array"].Delete(txn, f.db, f.IsObj, f.Type, idRaw, idToRaw, f.Field)
+		f.db.RUnlock()
+		if len(es) > 0 {
+			errs = append(errs, es...)
+		}
+	} else if field != "" {
+		f.db.RLock()
+		indexRaw, err := f.db.FT["uint64"].Set(index)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		idRaw, err := f.db.FT["uint64"].Set(f.TypeID)
+		f.db.RUnlock()
+		if f.IsObj {
+			err := txn.Delete([]byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "o" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + f.db.KV.D + f.Field + f.db.KV.D + string(indexRaw) + f.db.KV.D + field))
+			if err != nil {
+				errs = append(errs, err)
+			}
+		} else {
+			f.db.RLock()
+			idToRaw, err := f.db.FT["uint64"].Set(f.TypeIDTO)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			f.db.RUnlock()
+			err = txn.Delete([]byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "l" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + "-" + string(idToRaw) + f.db.KV.D + f.Field + f.db.KV.D + string(indexRaw) + f.db.KV.D + field))
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+	} else if field == "" {
+		f.db.RLock()
+		idRaw, _ := f.db.FT["uint64"].Set(f.TypeID)
+		f.db.RUnlock()
+		opt := badger.DefaultIteratorOptions
+		if f.IsObj {
+			opt.Prefix = []byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "o" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + f.db.KV.D + f.Field)
+		} else {
+			f.db.RLock()
+			idToRaw, err := f.db.FT["uint64"].Set(f.TypeIDTO)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			f.db.RUnlock()
+			opt.Prefix = []byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "l" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + "-" + string(idToRaw) + f.db.KV.D + field)
+		}
+		opt.PrefetchSize = 10
+		opt.PrefetchValues = false
+		iterator := txn.NewIterator(opt)
+		defer iterator.Close()
+		iterator.Seek(opt.Prefix)
+		for iterator.ValidForPrefix(opt.Prefix) {
+			item := iterator.Item()
+			k := item.KeyCopy(nil)
+			err := txn.Delete(k)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			iterator.Next()
+		}
+	}
+	return errs
+}
+
 func (f *FieldTypeArrayValue) New() (v interface{}, errs []error) {
 	t := 1
 	if !f.IsObj {
@@ -92,7 +174,9 @@ func (f *FieldTypeArrayValue) FromDB(ins string, params ...interface{}) (errs []
 			errs = append(errs, errors.New("You need to provide the index of the array value to load"))
 			return
 		}
+		f.db.RLock()
 		obj, errs = f.db.AFT["array"].Get(txn, f.db, f.IsObj, f.Type, f.Field, ins, params[0], f.TypeID, f.TypeIDTO)
+		f.db.RUnlock()
 		if len(errs) > 0 {
 			return
 		}
@@ -111,11 +195,12 @@ func (f *FieldTypeArrayValue) FromDB(ins string, params ...interface{}) (errs []
 			errs = append(errs, errors.New("You need to provide the number of array values to load"))
 			return
 		}
+		f.db.RLock()
 		obj, errs = f.db.AFT["array"].Get(txn, f.db, f.IsObj, f.Type, f.Field, ins, f.TypeID, f.TypeIDTO, params[0])
+		f.db.RUnlock()
 		if obj == nil {
 			return
 		}
-
 		for i, v := range obj.(map[uint64]interface{}) {
 			if _, ok := f.values[i]; !ok {
 				f.Index = append(f.Index, i)
@@ -130,7 +215,9 @@ func (f *FieldTypeArrayValue) FromDB(ins string, params ...interface{}) (errs []
 			errs = append(errs, errors.New("You need to provide the limit and skip of array values to load"))
 			return
 		}
+		f.db.RLock()
 		obj, errs = f.db.AFT["array"].Get(txn, f.db, f.IsObj, f.Type, f.Field, ins, f.TypeID, f.TypeIDTO, params[0], params[1])
+		f.db.RUnlock()
 		if obj == nil {
 			return
 		}
@@ -738,5 +825,30 @@ func (f *FieldTypeArray) Compare(txn *badger.Txn, db *DB, isObj bool, typ string
 }
 
 func (f *FieldTypeArray) Delete(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string) []error {
-	return nil
+	errs := make([]error, 0)
+	t := "o"
+	if !isObj {
+		t = "l"
+	}
+	opt := badger.DefaultIteratorOptions
+	if isObj {
+		opt.Prefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(id) + db.KV.D + field)
+	} else {
+		opt.Prefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(id) + "-" + string(idTo) + db.KV.D + field)
+	}
+	opt.PrefetchSize = 10
+	opt.PrefetchValues = true
+	iterator := txn.NewIterator(opt)
+	defer iterator.Close()
+	iterator.Seek(opt.Prefix)
+	for iterator.ValidForPrefix(opt.Prefix) {
+		item := iterator.Item()
+		k := item.KeyCopy(nil)
+		err := txn.Delete(k)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		iterator.Next()
+	}
+	return errs
 }

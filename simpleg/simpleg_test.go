@@ -354,7 +354,10 @@ func TestAll(t *testing.T) {
 	xx, xe = l.addActivity(time.Now(), "android", uint64(3))
 	xx, xe = l.addActivity(time.Now(), "ios", uint64(4))
 	xx, xe = l.addActivity(time.Now(), "symbian", uint64(5))
-	xx, xe = l.addActivity(time.Now(), "windows-phone", uint64(100))
+	xx, xe = l.addActivity(time.Now(), "windows-phone", uint64(6))
+	xx, xe = l.addActivity(time.Now(), "linux-phone", uint64(7))
+	xx, xe = l.addActivity(time.Now(), "zte", uint64(8))
+	xx, xe = l.addActivity(time.Now(), "nokia", uint64(100))
 	log.Print("mmmm 1 :-", xx, xe)
 	if len(xe) > 0 {
 		t.Error("simpleg.Set Failed Add user Activity: ", xx, xe)
@@ -373,6 +376,14 @@ func TestAll(t *testing.T) {
 		t.Error("Failed to load Friend Activities: ", errs)
 	}
 	log.Print("rrrrr 222222", l.activities)
+	errs = l.activities.Delete(uint64(7), "date")
+	if len(errs) > 0 {
+		t.Error("Failed to delete Activities field: ", errs)
+	}
+	errs = l.activities.Delete(uint64(6), "")
+	if len(errs) > 0 {
+		t.Error("Failed to delete Activities field: ", errs)
+	}
 
 	start = time.Now()
 	for i := 0; i < 10; i++ {
@@ -777,22 +788,22 @@ func TestAll(t *testing.T) {
 		log.Print("---- cccc.7 ---- ", len(retQuery.Data.(map[string]interface{})["post"].([]interface{})))
 	}
 
-	// n6 = NodeQuery{}
-	// q6 = db.Query()
-	// n6.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(6))
-	// q6.Do("link", n6)
-	// ret6 = q6.Return("single", "da", 0)
-	// if len(ret6.Errors) == 0 {
-	// 	t.Error("simpleg.Get Failed Test get Friend:", ret6.Data)
-	// }
+	n6 = NodeQuery{}
+	q6 = db.Query()
+	n6.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(6))
+	q6.Do("link", n6)
+	ret6 = q6.Return("single", "da", 0)
+	if len(ret6.Errors) > 0 {
+		t.Error("simpleg.Get Failed Test get Friend:", ret6.Data)
+	}
 
-	// n6 = NodeQuery{}
-	// q6 = db.Query()
-	// n6.Name("da").Object("User").Q("ID", "==", uint64(4))
-	// q6.Do("object", n6)
-	// ret6 = q6.Return("single", "da", 0)
-	// if len(ret6.Errors) == 0 {
-	// 	t.Error("simpleg.Get Failed Test get User:", ret6.Data)
-	// }
+	n6 = NodeQuery{}
+	q6 = db.Query()
+	n6.Name("da").Object("User").Q("ID", "==", uint64(4))
+	q6.Do("object", n6)
+	ret6 = q6.Return("single", "da", 0)
+	if len(ret6.Errors) > 0 {
+		t.Error("simpleg.Get Failed Test get User:", ret6.Data)
+	}
 
 }

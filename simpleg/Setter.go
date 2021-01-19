@@ -462,7 +462,9 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 			aft := s.DB.AFT[v.FieldType]
 			s.DB.RUnlock()
 			es := aft.Delete(txn, s.DB, true, object, objectID, objectID, k)
-			errs = append(errs, es...)
+			if len(es) > 0 {
+				errs = append(errs, es...)
+			}
 		}
 	}
 	return errs
@@ -543,7 +545,10 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 			if link.Type == 1 || link.Type == 2 {
 				es = aft.Delete(txn, s.DB, false, object, objectTo, objectFrom, k)
 			}
-			errs = append(errs, es...)
+			if len(es) > 0 {
+				errs = append(errs, es...)
+			}
+
 		}
 	}
 
