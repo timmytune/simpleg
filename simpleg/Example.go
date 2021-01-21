@@ -6,6 +6,8 @@ import (
 	"log"
 	"runtime/debug"
 	"time"
+
+	badger "github.com/dgraph-io/badger/v2"
 )
 
 //User Object
@@ -823,7 +825,8 @@ func GetLikeLinkOption() LinkTypeOptions {
 	return fl
 }
 
-func InitDB(opt Options) *DB {
+func InitDB() *DB {
+	opt := DefaultOptions()
 	db := &DB{}
 	db.Init(opt)
 	db.AddObjectType(GetUserOption())
@@ -831,5 +834,9 @@ func InitDB(opt Options) *DB {
 	db.AddLinkType(GetFriendLinkOption())
 	db.AddLinkType(GetAuthorLinkOption())
 	db.AddLinkType(GetLikeLinkOption())
+	f := func(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+		ret.Errors = append(ret.Errors, errors.New("you should have left"))
+	}
+	db.AddGetterFunction("errored", f)
 	return db
 }

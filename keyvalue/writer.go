@@ -17,10 +17,9 @@ type WriterData struct {
 }
 
 type BatchWriter struct {
-	input    chan WriterData
-	shotdown bool
-	kv       *KV
-	lock     sync.Mutex
+	input chan WriterData
+	kv    *KV
+	lock  sync.Mutex
 }
 
 func GetWriteData(k1, k2, k3, k4, k5 string, value []byte, seprator string) WriterData {
@@ -76,7 +75,7 @@ func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan b
 	var transactionCount int
 	for {
 		select {
-		case data, ok := <-input:
+		case data := <-input:
 			if transaction == nil {
 				transaction = db.NewTransaction(true)
 			}
@@ -105,12 +104,7 @@ func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan b
 				}
 			}
 			data.err <- err
-			if !ok && len(input) == 0 {
-				b.lock.Lock()
-				b.shotdown = true
-				b.lock.Unlock()
-			}
-		case _, ok := <-internal:
+		case <-internal:
 			if transactionCount > 0 && len(input) == 0 {
 				err := transaction.Commit()
 				if err != nil {
@@ -118,15 +112,6 @@ func (b *BatchWriter) mainRoutine(id int, input chan WriterData, internal chan b
 				}
 				transaction = db.NewTransaction(true)
 				transactionCount = 0
-			}
-			if !ok {
-				if transaction != nil {
-					err := transaction.Commit()
-					if err != nil {
-						Log.Error().Interface("error", err).Interface("transaction", transaction).Msg("Unable to commit write transaction")
-					}
-				}
-				return
 			}
 		}
 	}
@@ -141,25 +126,17 @@ func (b *BatchWriter) childRoutine(chs []chan bool) {
 		}
 	}()
 	for {
-		time.Sleep(100 * time.Millisecond)
-		b.lock.Lock()
-		shotdown := b.shotdown
-		b.lock.Unlock()
+		time.Sleep(500 * time.Millisecond)
 		for _, ch := range chs {
-			if shotdown {
-				ch <- false
-			} else {
-				ch <- true
-			}
-		}
-		if shotdown {
-			return
+			ch <- true
 		}
 	}
 }
 
 func (b *BatchWriter) Close() {
-	b.lock.Lock()
-	b.shotdown = true
-	b.lock.Unlock()
+	for {
+		if len(b.input) == 0 {
+			break
+		}
+	}
 }

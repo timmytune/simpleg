@@ -23,22 +23,18 @@ func TestMain(m *testing.M) {
 	u = FieldTypeUint64{}
 	d = FieldTypeDate{}
 
-	opt := DefaultOptions()
-	db = InitDB(opt)
+	db = InitDB()
 	db.Start()
 
 	ret := m.Run()
 
 	db.Close()
-	os.RemoveAll(opt.DataDirectory)
-
+	os.RemoveAll("/data/simpleg")
 	os.Exit(ret)
 
 }
 
 func TestAll(t *testing.T) {
-	//------------------------ set of 10 friend node objects
-
 	var wg sync.WaitGroup
 	start := time.Now()
 	for i := 0; i < 9; i++ {
@@ -286,7 +282,6 @@ func TestAll(t *testing.T) {
 		}
 		f.FROM = uint64(i + 1)
 		f.TO = uint64(9 - i + 1)
-		f.accepted = false
 		if (i + 1) != (9 - i + 1) {
 			r := db.Set("save.link", "Friend", f)
 			if len(r.Errors) > 0 {
@@ -305,7 +300,7 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Set Failed Test set Friend:", r)
 	}
 	//-------------------------------------------------------- Test Get Link
-	ret2 := db.Get("link.single", "Friend", "->", uint64(1), uint64(7))
+	ret2 := db.Get("link.single", "Friend", "->", uint64(1), uint64(10))
 	if len(ret2.Errors) > 0 {
 		t.Error("simpleg.Get Failed Test get Friend:", ret2)
 	}
@@ -376,7 +371,7 @@ func TestAll(t *testing.T) {
 		t.Error("Failed to load Friend Activities: ", errs)
 	}
 	log.Print("rrrrr 222222", l.activities)
-	errs = l.activities.Delete(uint64(7), "date")
+	errs = l.activities.Delete(uint64(7), "deviceID")
 	if len(errs) > 0 {
 		t.Error("Failed to delete Activities field: ", errs)
 	}
@@ -384,6 +379,15 @@ func TestAll(t *testing.T) {
 	if len(errs) > 0 {
 		t.Error("Failed to delete Activities field: ", errs)
 	}
+
+	time.Sleep(1 * time.Second)
+	l.activities.Clear()
+	log.Print("rrrrr 333333", l.activities)
+	errs = l.activities.FromDB("last", 10)
+	if len(errs) > 0 {
+		t.Error("Failed to load Friend Activities: ", errs)
+	}
+	log.Print("rrrrr 44444", l.activities)
 
 	start = time.Now()
 	for i := 0; i < 10; i++ {
@@ -555,7 +559,7 @@ func TestAll(t *testing.T) {
 
 	n7 := NodeQuery{}
 	q7 := db.Query()
-	n7.Name("da").Link("Friend", "<-").Limit(100).Q("FROM", "==", uint64(10))
+	n7.Name("da").Link("Friend", "->").Limit(100).Q("FROM", "==", uint64(10))
 	q7.Do("link", n7)
 	ret7 := q7.Return("array", "da")
 	if len(ret7.Errors) > 0 {
@@ -793,8 +797,10 @@ func TestAll(t *testing.T) {
 	n6.Name("da").Link("Friend", "->").Q("FROM", "==", uint64(2)).Q("TO", "==", uint64(6))
 	q6.Do("link", n6)
 	ret6 = q6.Return("single", "da", 0)
-	if len(ret6.Errors) > 0 {
+	if len(ret6.Errors) == 0 {
 		t.Error("simpleg.Get Failed Test get Friend:", ret6.Data)
+	} else {
+		log.Print("???????????", ret6.Errors)
 	}
 
 	n6 = NodeQuery{}
@@ -802,8 +808,22 @@ func TestAll(t *testing.T) {
 	n6.Name("da").Object("User").Q("ID", "==", uint64(4))
 	q6.Do("object", n6)
 	ret6 = q6.Return("single", "da", 0)
-	if len(ret6.Errors) > 0 {
+	if len(ret6.Errors) == 0 {
 		t.Error("simpleg.Get Failed Test get User:", ret6.Data)
+	} else {
+		log.Print("???????????", ret6.Errors)
+	}
+
+	n6 = NodeQuery{}
+	q6 = db.Query()
+	n6.Name("da").Object("User").Q("ID", "==", uint64(2))
+	q6.Do("errored")
+	q6.Do("object", n6)
+	ret6 = q6.Return("single", "da", 0)
+	if len(ret6.Errors) == 0 {
+		t.Error("simpleg.Get Failed Test get User:", ret6.Data)
+	} else {
+		log.Print("???????????", ret6.Errors)
 	}
 
 }

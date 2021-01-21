@@ -110,7 +110,11 @@ func (q *Query) Do(action string, args ...interface{}) *Query {
 	q.Instructions = append(q.Instructions, QueryInstruction{Action: action, Params: args})
 	return q
 }
-func (q *Query) Return(returnType string, args ...interface{}) GetterRet {
+func (q *Query) Return(returnType string, args ...interface{}) (g GetterRet) {
+	if q.DB.Shotdown {
+		g.Errors = append(g.Errors, errors.New("database shoting down..."))
+		return
+	}
 	q.Ret = make(chan GetterRet)
 	if returnType != "skip" {
 		q.Instructions = append(q.Instructions, QueryInstruction{"return", args})
@@ -123,15 +127,14 @@ func (q *Query) Return(returnType string, args ...interface{}) GetterRet {
 			q.ReturnType = 3
 		default:
 			ret := GetterRet{}
-			ret.Errors = make([]error, 0)
 			ret.Errors = append(ret.Errors, errors.New("Invalid return type provided you can only use one of 'single', 'array' or 'map' "))
 			close(q.Ret)
 			return ret
 		}
 	}
 	q.DB.Getter.Input <- *q
-	ret := <-q.Ret
-	return ret
+	g = <-q.Ret
+	return g
 }
 
 type GetterRet struct {
@@ -439,9 +442,8 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 }
 
 type GetterFactory struct {
-	DB                          *DB
-	Input                       chan Query
-	transactionValidityDuration uint64
+	DB    *DB
+	Input chan Query
 }
 
 func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[KeyValueKey][]byte, []error) {
@@ -466,6 +468,10 @@ func (g *GetterFactory) getKeysWithValue(txn *badger.Txn, pre ...string) (map[Ke
 			}
 
 		}
+	}
+	if len(ret) == 0 {
+		errs = append(errs, errors.New("Key returned no result"))
+		return ret, errs
 	}
 	return ret, errs
 }
@@ -840,57 +846,53 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 			}
 		}
 		if from != uint64(0) && to != uint64(0) {
-			if isIds {
-				g.DB.RLock()
-				f, err := g.DB.FT["uint64"].Set(from)
-				if err != nil {
-					errs = append(errs, err)
-				}
-				t, err := g.DB.FT["uint64"].Set(to)
-				if err != nil {
-					errs = append(errs, err)
-				}
-				indexed := ""
-				if node.Direction == "->" {
-					indexed = "INDEXED+"
-				} else {
-					indexed = "INDEXED-"
-				}
-				prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + indexed + string(f) + g.DB.KV.D + string(t)
-				_, err = txn.Get([]byte(prefix))
-				if err != nil {
-					errs = append(errs, err)
-				}
-				ret.IDs = append(ret.IDs, LinkListList{FROM: f, TO: t})
-				g.DB.RUnlock()
+
+			g.DB.RLock()
+			f, err := g.DB.FT["uint64"].Set(from)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			t, err := g.DB.FT["uint64"].Set(to)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			g.DB.RUnlock()
+			indexed := ""
+			if node.Direction == "->" {
+				indexed = "INDEXED+"
+			} else {
+				indexed = "INDEXED-"
+			}
+			prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + indexed + g.DB.KV.D + string(f) + g.DB.KV.D + string(t)
+			_, err = txn.Get([]byte(prefix))
+			if err != nil {
+				errs = append(errs, err)
 				return &ret, errs
 			}
-			g.DB.RLock()
-			rawFrom, er := g.DB.FT["uint64"].Set(from)
-			rawTo, er := g.DB.FT["uint64"].Set(to)
-			g.DB.RUnlock()
-			if er != nil {
-				errs = append(errs, er)
-			} else {
-				var obj map[KeyValueKey][]byte
-				var err []error
-				if node.Direction == "<-" {
-					obj, err = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(rawTo), string(rawFrom))
-				} else {
-					obj, err = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(rawFrom), string(rawTo))
-				}
-				if len(err) > 0 {
-					errs = append(errs, err...)
-				}
-
-				if obj != nil {
-					obj[KeyValueKey{Main: "FROM"}] = rawFrom
-					obj[KeyValueKey{Main: "TO"}] = rawTo
-					ret.Links = append(ret.Links, obj)
-					return &ret, errs
-				}
+			if isIds {
+				ret.IDs = append(ret.IDs, LinkListList{FROM: f, TO: t})
+				return &ret, errs
 			}
 
+			var obj map[KeyValueKey][]byte
+			var ers []error
+			if node.Direction == "<-" {
+				obj, ers = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(t), string(f))
+			} else {
+				obj, ers = g.getKeysWithValueLinks(txn, g.DB.Options.DBName, node.TypeName, string(f), string(t))
+			}
+			if len(ers) > 0 {
+				errs = append(errs, ers...)
+			}
+			if obj != nil {
+				obj[KeyValueKey{Main: "FROM"}] = f
+				obj[KeyValueKey{Main: "TO"}] = t
+				ret.Links = append(ret.Links, obj)
+				return &ret, errs
+			}
+		} else {
+			errs = append(errs, errors.New("TO and FROM provided is invalid"))
+			return &ret, errs
 		}
 
 	}
@@ -1183,9 +1185,8 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 
 	return &ret, errs
 }
-func (g *GetterFactory) Start(db *DB, numOfRuners int, inputChannelLength int, transactionValidityDuration uint64) {
+func (g *GetterFactory) Start(db *DB, numOfRuners int, inputChannelLength int) {
 	g.DB = db
-	g.transactionValidityDuration = transactionValidityDuration
 	g.Input = make(chan Query, inputChannelLength)
 	for i := 0; i < numOfRuners; i++ {
 		go g.Run()
@@ -1247,13 +1248,27 @@ func (g *GetterFactory) Run() {
 			case "graph.s":
 				GetterGraphStraight(g, txn, &data, &job, val.Params, &ret)
 			default:
-				ret.Errors = append(ret.Errors, errors.New("Invalid Istruction in GetterFactory: "+val.Action))
+				g.DB.RLock()
+				f, ok := g.DB.GF[val.Action]
+				g.DB.RUnlock()
+				if !ok {
+					ret.Errors = append(ret.Errors, errors.New("Invalid Istruction in GetterFactory: "+val.Action))
+				} else {
+					f(g, txn, &data, &job, val.Params, &ret)
+				}
 			}
 
 		}
 
 	}
 
+}
+func (g *GetterFactory) Close() {
+	for {
+		if len(g.Input) == 0 {
+			break
+		}
+	}
 }
 
 //GetterNewObject ..
@@ -1832,6 +1847,7 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 					buffer.WriteString(key)
 					item, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
+						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
 						e = append(e, err)
@@ -2011,6 +2027,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
+						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
@@ -2196,6 +2213,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
+						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
@@ -2358,6 +2376,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
+						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
@@ -2526,6 +2545,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
+						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
@@ -2721,6 +2741,7 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 			buffer.WriteString(key)
 			item2, err := i.txn.Get(buffer.Bytes())
 			if err != nil && err == badger.ErrKeyNotFound {
+				failed = true
 			} else if err != nil && err != badger.ErrKeyNotFound {
 				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
 				errs = append(errs, err)

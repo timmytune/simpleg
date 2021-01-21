@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	badger "github.com/dgraph-io/badger/v2"
+	"github.com/dgraph-io/badger/v2/options"
 	"github.com/rs/zerolog"
 	kv "ytech.com.ng/projects/jists/keyvalue"
 )
@@ -30,6 +31,7 @@ type AdvancedFieldType interface {
 	Get(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error)
 	Compare(*badger.Txn, *DB, bool, string, []byte, []byte, string, string, interface{}) (bool, []error)
 	Delete(*badger.Txn, *DB, bool, string, []byte, []byte, string) []error
+	Close() error
 }
 
 type FieldTypeOptions struct {
@@ -68,45 +70,51 @@ type LinkTypeOptions struct {
 }
 
 type Options struct {
-	DataDirectory               string
-	DBName                      string
-	TruncateDB                  bool
-	DBDelimiter                 string
-	KVWriterGoroutineCount      int
-	KVWriterChannelLength       int
-	SetterChannelLength         int
-	SetterGoroutineCount        int
-	GetterChannelLength         int
-	GetterGoroutineCount        int
-	transactionValidityDuration uint64
+	DBName                 string
+	DBDelimiter            string
+	KVWriterGoroutineCount int
+	KVWriterChannelLength  int
+	SetterChannelLength    int
+	SetterGoroutineCount   int
+	GetterChannelLength    int
+	GetterGoroutineCount   int
+	BadgerOptions          badger.Options
 }
 
 func DefaultOptions() Options {
-	return Options{
-		DataDirectory:               "/data/simpleg",
-		DBName:                      "simpleg",
-		TruncateDB:                  true,
-		DBDelimiter:                 "^",
-		KVWriterChannelLength:       500,
-		KVWriterGoroutineCount:      100,
-		SetterChannelLength:         500,
-		SetterGoroutineCount:        200,
-		GetterChannelLength:         1500,
-		GetterGoroutineCount:        500,
-		transactionValidityDuration: uint64(10)}
+	ret := Options{
+		DBName:                 "simpleg",
+		DBDelimiter:            "^",
+		KVWriterChannelLength:  500,
+		KVWriterGoroutineCount: 50,
+		SetterChannelLength:    500,
+		SetterGoroutineCount:   25,
+		GetterChannelLength:    500,
+		GetterGoroutineCount:   50,
+		BadgerOptions:          badger.DefaultOptions("/data/simpleg")}
+	ret.BadgerOptions.Compression = options.None
+	ret.BadgerOptions.TableLoadingMode = options.FileIO
+	ret.BadgerOptions.ValueLogLoadingMode = options.FileIO
+	ret.BadgerOptions.Truncate = true
+	ret.BadgerOptions.DetectConflicts = false
+	ret.BadgerOptions.BlockCacheSize = int64(0)
+	ret.BadgerOptions.LoadBloomsOnOpen = false
+	return ret
 }
 
 // DB is simpleg's main db
 type DB struct {
-	Options Options
-	KV      *kv.KV
-	FT      map[string]FieldType
-	FTO     map[string]FieldTypeOptions
-	AFT     map[string]AdvancedFieldType
-	OT      map[string]ObjectTypeOptions
-	LT      map[string]LinkTypeOptions
-	Setter  SetterFactory
-	Getter  GetterFactory
+	Options  Options
+	KV       *kv.KV
+	FT       map[string]FieldType
+	FTO      map[string]FieldTypeOptions
+	AFT      map[string]AdvancedFieldType
+	OT       map[string]ObjectTypeOptions
+	LT       map[string]LinkTypeOptions
+	GF       map[string]func(*GetterFactory, *badger.Txn, *map[string]interface{}, *Query, []interface{}, *GetterRet)
+	Setter   SetterFactory
+	Getter   GetterFactory
+	Shotdown bool
 	sync.RWMutex
 }
 
@@ -118,7 +126,7 @@ func (db *DB) Init(o Options) error {
 	Log = zerolog.New(file).With().Timestamp().Logger()
 	//os.Stderr = file
 	//log.SetOutput(file)
-	Log.Info().Msg("Database initiating")
+	Log.Info().Msg("Database initializing")
 	kv.Log = &Log
 	//zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	//db.Lock = sync.Mutex{}
@@ -128,6 +136,7 @@ func (db *DB) Init(o Options) error {
 	db.OT = make(map[string]ObjectTypeOptions)
 	db.LT = make(map[string]LinkTypeOptions)
 	db.AFT = make(map[string]AdvancedFieldType)
+	db.GF = make(map[string]func(*GetterFactory, *badger.Txn, *map[string]interface{}, *Query, []interface{}, *GetterRet))
 	db.Setter = SetterFactory{}
 	db.Getter = GetterFactory{}
 	db.AddFieldType(FieldTypeOptions{Name: "bool", AllowIndexing: false}, &FieldTypeBool{})
@@ -137,7 +146,7 @@ func (db *DB) Init(o Options) error {
 	db.AddFieldType(FieldTypeOptions{Name: "date", AllowIndexing: true}, &FieldTypeDate{})
 	db.AddAdvancedFieldType("array", &FieldTypeArray{})
 
-	Log.Info().Msg("Database initiated")
+	Log.Info().Msg("Database initialized")
 	return nil
 }
 
@@ -160,6 +169,10 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 			}
 		}
 	}()
+	if db.Shotdown {
+		s.Errors = append(s.Errors, errors.New("Database shoting down..."))
+		return
+	}
 	j := SetterJob{}
 	j.Ins = ins
 	j.Data = d
@@ -212,6 +225,10 @@ func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 			}
 		}
 	}()
+	if db.Shotdown {
+		ret.Errors = append(ret.Errors, errors.New("Database shoting down..."))
+		return
+	}
 	d1, ok := d[0].(string)
 	if !ok {
 		ret.Errors = append(ret.Errors, errors.New("Invalid argument provided in Get function"))
@@ -255,19 +272,27 @@ func (db *DB) Start() error {
 	kd.D = db.Options.DBDelimiter
 	kd.WriteTransactionsChannelLength = db.Options.KVWriterChannelLength
 	kd.WriterRoutines = db.Options.KVWriterGoroutineCount
-	bd := kv.BadgerDefaultOptions(db.Options.DataDirectory)
-	bd.Truncate = db.Options.TruncateDB
-	db.KV, err = kv.Open(kd, bd)
+	db.KV, err = kv.Open(kd, db.Options.BadgerOptions)
 	db.Setter.Start(db, db.Options.SetterGoroutineCount, db.Options.SetterChannelLength)
-	db.Getter.Start(db, db.Options.GetterGoroutineCount, db.Options.GetterChannelLength, db.Options.transactionValidityDuration)
+	db.Getter.Start(db, db.Options.GetterGoroutineCount, db.Options.GetterChannelLength)
 	Log.Info().Msg("Database started")
 	return err
 
 }
 
 func (db *DB) Close() error {
+	Log.Print("Closing Database...")
 	var err error
+	db.Shotdown = true
+	db.RLock()
+	afts := db.AFT
+	db.RUnlock()
+	for _, v := range afts {
+		v.Close()
+	}
+	db.Getter.Close()
 	err = db.KV.Close()
+	Log.Print("Database Closed")
 	return err
 }
 
@@ -287,6 +312,15 @@ func (db *DB) AddAdvancedFieldType(name string, f AdvancedFieldType) error {
 		return errors.New("invalid AdvancedFieldType provided")
 	}
 	db.AFT[name] = f
+	return err
+}
+
+func (db *DB) AddGetterFunction(name string, f func(*GetterFactory, *badger.Txn, *map[string]interface{}, *Query, []interface{}, *GetterRet)) error {
+	var err error
+	if f == nil {
+		return errors.New("invalid Getter function provided")
+	}
+	db.GF[name] = f
 	return err
 }
 

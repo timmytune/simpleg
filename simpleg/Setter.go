@@ -336,7 +336,6 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 				opt.PrefetchSize = 10
 				opt.PrefetchValues = true
 				iterator := txn.NewIterator(opt)
-				defer iterator.Close()
 				iterator.Seek(opt.Prefix)
 				for iterator.ValidForPrefix(opt.Prefix) {
 					item := iterator.Item()
@@ -350,6 +349,11 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 						break
 					}
 					iterator.Next()
+				}
+				iterator.Close()
+				err := txn.Commit()
+				if err != nil {
+					errs = append(errs, err)
 				}
 			}
 		}
@@ -366,6 +370,10 @@ func (s *SetterFactory) DeleteObjectField(object string, objectID []byte, field 
 		errs2 := advancedFieldType.Delete(txn, s.DB, true, object, objectID, objectID, field)
 		if len(errs) > 0 {
 			errs = append(errs, errs2...)
+		}
+		err := txn.Commit()
+		if err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errs
@@ -388,6 +396,10 @@ func (s *SetterFactory) DeleteLinkField(object string, objectFrom []byte, object
 		if len(errs) > 0 {
 			errs = append(errs, errs2...)
 		}
+		err := txn.Commit()
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errs
 }
@@ -408,9 +420,8 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 			opt := badger.DefaultIteratorOptions
 			opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED+" + s.DB.KV.D + string(objectID))
 			opt.PrefetchSize = 10
-			opt.PrefetchValues = true
+			opt.PrefetchValues = false
 			iterator := txn.NewIterator(opt)
-			defer iterator.Close()
 			iterator.Seek(opt.Prefix)
 			for iterator.ValidForPrefix(opt.Prefix) {
 				item := iterator.Item()
@@ -422,9 +433,12 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 				}
 				iterator.Next()
 			}
-			opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED-" + s.DB.KV.D + string(objectID))
-			iterator2 := txn.NewIterator(opt)
-			defer iterator2.Close()
+			iterator.Close()
+			opt2 := badger.DefaultIteratorOptions
+			opt2.PrefetchSize = 10
+			opt2.PrefetchValues = false
+			opt2.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED-" + s.DB.KV.D + string(objectID))
+			iterator2 := txn.NewIterator(opt2)
 			iterator2.Seek(opt.Prefix)
 			for iterator2.ValidForPrefix(opt.Prefix) {
 				item := iterator2.Item()
@@ -436,15 +450,14 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 				}
 				iterator2.Next()
 			}
+			iterator2.Close()
 		}
 	}
-
 	opt := badger.DefaultIteratorOptions
 	opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectID))
 	opt.PrefetchSize = 10
 	opt.PrefetchValues = true
 	iterator3 := txn.NewIterator(opt)
-	defer iterator3.Close()
 	iterator3.Seek(opt.Prefix)
 	var k []byte
 	for iterator3.ValidForPrefix(opt.Prefix) {
@@ -456,6 +469,7 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 		}
 		iterator3.Next()
 	}
+	iterator3.Close()
 	for k, v := range objectType.Fields {
 		if v.Advanced {
 			s.DB.RLock()
@@ -466,6 +480,10 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 				errs = append(errs, es...)
 			}
 		}
+	}
+	err := txn.Commit()
+	if err != nil {
+		errs = append(errs, err)
 	}
 	return errs
 }
@@ -486,7 +504,6 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 	opt.PrefetchSize = 10
 	opt.PrefetchValues = true
 	iterator := txn.NewIterator(opt)
-	defer iterator.Close()
 	iterator.Seek(opt.Prefix)
 	for iterator.ValidForPrefix(opt.Prefix) {
 		item := iterator.Item()
@@ -497,14 +514,13 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 		}
 		iterator.Next()
 	}
-
+	iterator.Close()
 	if link.Type == 1 || link.Type == 2 {
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(objectTo) + s.DB.KV.D + string(objectFrom))
 		opt.PrefetchSize = 10
 		opt.PrefetchValues = true
 		iterator := txn.NewIterator(opt)
-		defer iterator.Close()
 		iterator.Seek(opt.Prefix)
 		for iterator.ValidForPrefix(opt.Prefix) {
 			item := iterator.Item()
@@ -515,6 +531,7 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 			}
 			iterator.Next()
 		}
+		iterator.Close()
 	}
 	err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectFrom), string(objectTo))
 	if err != nil {
@@ -551,7 +568,10 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 
 		}
 	}
-
+	err = txn.Commit()
+	if err != nil {
+		errs = append(errs, err)
+	}
 	return errs
 }
 

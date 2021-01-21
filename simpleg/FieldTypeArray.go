@@ -49,12 +49,32 @@ func (f *FieldTypeArrayValue) Set(v interface{}, index uint64) (uint64, error) {
 	return index, nil
 }
 
-func (f *FieldTypeArrayValue) Delete(index uint64, field string) []error {
-	errs := make([]error, 0)
+func (f *FieldTypeArrayValue) Delete(index uint64, field string) (errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	errs = make([]error, 0)
 	if f.Type == "" {
 		errs = append(errs, errors.New("This field has not yet been initialized"))
 		return errs
 	}
+
+	if f.db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return errs
+	}
+
 	txn := f.db.KV.DB.NewTransaction(true)
 	defer txn.Discard()
 	if index == uint64(0) {
@@ -101,9 +121,12 @@ func (f *FieldTypeArrayValue) Delete(index uint64, field string) []error {
 		f.db.RLock()
 		idRaw, _ := f.db.FT["uint64"].Set(f.TypeID)
 		f.db.RUnlock()
+		f.db.RLock()
+		indexRaw, _ := f.db.FT["uint64"].Set(index)
+		f.db.RUnlock()
 		opt := badger.DefaultIteratorOptions
 		if f.IsObj {
-			opt.Prefix = []byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "o" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + f.db.KV.D + f.Field)
+			opt.Prefix = []byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "o" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + f.db.KV.D + f.Field + f.db.KV.D + string(indexRaw))
 		} else {
 			f.db.RLock()
 			idToRaw, err := f.db.FT["uint64"].Set(f.TypeIDTO)
@@ -111,12 +134,11 @@ func (f *FieldTypeArrayValue) Delete(index uint64, field string) []error {
 				errs = append(errs, err)
 			}
 			f.db.RUnlock()
-			opt.Prefix = []byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "l" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + "-" + string(idToRaw) + f.db.KV.D + field)
+			opt.Prefix = []byte(f.db.Options.DBName + f.db.KV.D + "a" + f.db.KV.D + "l" + f.db.KV.D + f.Type + f.db.KV.D + string(idRaw) + "-" + string(idToRaw) + f.db.KV.D + f.Field + f.db.KV.D + string(indexRaw))
 		}
 		opt.PrefetchSize = 10
 		opt.PrefetchValues = false
 		iterator := txn.NewIterator(opt)
-		defer iterator.Close()
 		iterator.Seek(opt.Prefix)
 		for iterator.ValidForPrefix(opt.Prefix) {
 			item := iterator.Item()
@@ -127,11 +149,34 @@ func (f *FieldTypeArrayValue) Delete(index uint64, field string) []error {
 			}
 			iterator.Next()
 		}
+		iterator.Close()
+	}
+	err := txn.Commit()
+	if err != nil {
+		errs = append(errs, err)
 	}
 	return errs
 }
 
 func (f *FieldTypeArrayValue) New() (v interface{}, errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	if f.db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return
+	}
 	t := 1
 	if !f.IsObj {
 		t = 2
@@ -141,6 +186,7 @@ func (f *FieldTypeArrayValue) New() (v interface{}, errs []error) {
 }
 
 func (f *FieldTypeArrayValue) Get(index uint64) interface{} {
+
 	if index == uint64(0) {
 		return nil
 	}
@@ -164,6 +210,24 @@ func (f *FieldTypeArrayValue) Clear() {
 }
 
 func (f *FieldTypeArrayValue) FromDB(ins string, params ...interface{}) (errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	if f.db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return
+	}
 	errs = make([]error, 0)
 	switch ins {
 	case "single":
@@ -175,7 +239,8 @@ func (f *FieldTypeArrayValue) FromDB(ins string, params ...interface{}) (errs []
 			return
 		}
 		f.db.RLock()
-		obj, errs = f.db.AFT["array"].Get(txn, f.db, f.IsObj, f.Type, f.Field, ins, params[0], f.TypeID, f.TypeIDTO)
+		aft := f.db.AFT["array"]
+		obj, errs = aft.Get(txn, f.db, f.IsObj, f.Type, f.Field, ins, params[0], f.TypeID, f.TypeIDTO)
 		f.db.RUnlock()
 		if len(errs) > 0 {
 			return
@@ -244,9 +309,29 @@ func (f *FieldTypeArrayValue) Pop() (interface{}, uint64) {
 	return nil, uint64(0)
 }
 
-func (f *FieldTypeArrayValue) Save() []error {
-	errs := f.db.AFT["array"].Set(f.db, *f)
-	return errs
+func (f *FieldTypeArrayValue) Save() (errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	if f.db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return
+	}
+	f.db.RLock()
+	errs = f.db.AFT["array"].Set(f.db, *f)
+	f.db.RUnlock()
+	return
 }
 
 type FieldTypeArray struct {
@@ -259,8 +344,27 @@ func (f *FieldTypeArray) GetOption() map[string]string {
 	return m
 }
 
-func (f *FieldTypeArray) New(db *DB, params ...interface{}) (interface{}, []error) {
-	errs := make([]error, 0)
+func (f *FieldTypeArray) New(db *DB, params ...interface{}) (v interface{}, errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	if db.Shotdown {
+		errs := make([]error, 0)
+		errs = append(errs, errors.New("Database closing..."))
+		return nil, errs
+	}
+	errs = make([]error, 0)
 	isObj, ok := params[0].(int)
 	if !ok {
 		errs = append(errs, errors.New("First parameter not an int"))
@@ -336,8 +440,25 @@ func (f *FieldTypeArray) New(db *DB, params ...interface{}) (interface{}, []erro
 	return ret, errs
 }
 
-func (f *FieldTypeArray) Set(db *DB, params ...interface{}) []error {
-	errs := make([]error, 0)
+func (f *FieldTypeArray) Set(db *DB, params ...interface{}) (errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	if db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return errs
+	}
 	array, ok := params[0].(FieldTypeArrayValue)
 	if !ok {
 		errs = append(errs, errors.New("FieldArray.Set: Provided data is not of type FieldTypeArrayValue"))
@@ -383,9 +504,26 @@ func (f *FieldTypeArray) Set(db *DB, params ...interface{}) []error {
 	return errs
 }
 
-func (f *FieldTypeArray) Get(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error) {
-	errs := make([]error, 0)
-
+func (f *FieldTypeArray) Get(txn *badger.Txn, db *DB, params ...interface{}) (v interface{}, errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	errs = make([]error, 0)
+	if db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return nil, errs
+	}
 	isObj, ok := params[0].(bool)
 	if !ok {
 		errs = append(errs, errors.New("FieldArray.Get: First parameter not a bool"))
@@ -643,9 +781,22 @@ func (f *FieldTypeArray) Get(txn *badger.Txn, db *DB, params ...interface{}) (in
 	}
 }
 
-func (f *FieldTypeArray) Compare(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string, action string, param interface{}) (bool, []error) {
-	errs := make([]error, 0)
-
+func (f *FieldTypeArray) Compare(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string, action string, param interface{}) (v bool, errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	errs = make([]error, 0)
 	switch action {
 	case "count-g":
 		count, ok := param.(int)
@@ -820,12 +971,28 @@ func (f *FieldTypeArray) Compare(txn *badger.Txn, db *DB, isObj bool, typ string
 		}
 		return false, errs
 	}
-	//errs = append(errs, errors.New("Invalid instruction"))
-	//return false, errs
 }
 
-func (f *FieldTypeArray) Delete(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string) []error {
-	errs := make([]error, 0)
+func (f *FieldTypeArray) Delete(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string) (errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	errs = make([]error, 0)
+	if db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return errs
+	}
 	t := "o"
 	if !isObj {
 		t = "l"
@@ -851,4 +1018,8 @@ func (f *FieldTypeArray) Delete(txn *badger.Txn, db *DB, isObj bool, typ string,
 		iterator.Next()
 	}
 	return errs
+}
+
+func (f *FieldTypeArray) Close() error {
+	return nil
 }

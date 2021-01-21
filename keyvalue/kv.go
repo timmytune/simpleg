@@ -3,7 +3,6 @@ package keyvalue
 import (
 	"bytes"
 	"context"
-	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,9 +14,7 @@ import (
 )
 
 var (
-	// DefaultOptions is the Badger default option
-	BadgerDefaultOptions = badger.DefaultOptions
-	// DefaultIteratorOptions is the Badger default operation
+	BadgerDefaultOptions   = badger.DefaultOptions
 	DefaultIteratorOptions = badger.DefaultIteratorOptions
 	WriterInput            chan WriterData
 	lock                   = sync.Mutex{}
@@ -83,7 +80,8 @@ func Open(kvOption KVOption, badgerOption badger.Options) (*KV, error) {
 	s := KV{D: kvOption.D}
 	db, err := badger.Open(badgerOption)
 	if err != nil {
-		log.Fatal(err)
+		Log.Fatal().Interface("error", err).Msg("initialization failed")
+		return nil, err
 	}
 	s.DB = db
 	s.Writer = db.NewWriteBatch()
@@ -323,6 +321,5 @@ func (s *KV) Close() error {
 		v.Release()
 	}
 	s.Writer2.Close()
-
 	return s.DB.Close()
 }
