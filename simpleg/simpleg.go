@@ -1,3 +1,18 @@
+/*
+ * Copyright 2021 Adedoyin Yinka and Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package simpleg
 
 import (
@@ -6,31 +21,71 @@ import (
 	"runtime/debug"
 	"sync"
 
-	badger "github.com/dgraph-io/badger/v2"
-	"github.com/dgraph-io/badger/v2/options"
+	badger "github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/options"
 	"github.com/rs/zerolog"
-	kv "ytech.com.ng/projects/jists/keyvalue"
+	kv "github.com/timmytune/simpleg/keyvalue"
 )
 
 var (
+	//Log is the current Zerolog instance used by simpleg. It is initialised and you can use it in your own application too
 	Log zerolog.Logger
 )
 
+//FieldType is the Interface that all fieldtypes in simpleg Implement.
 type FieldType interface {
+	//GetOption returns the options of type map[string]string for the FieldType. Only two options are currently provided
+	//check file FieldTypeBool.go for implementation
 	GetOption() map[string]string
+	//Set accepts an interface of which's underlaying value is the valur type of this FiledType and returns []byte representation of the
+	//value, If there is an error an error is returned instead
+	//check file FieldTypeBool.go for implementation
 	Set(interface{}) ([]byte, error)
+	//Get accepts an []byte representation of the value and returns an interface of which's underlaying value is the valur type of this
+	//FiledType, If there is an error an error is returned instead
+	//check file FieldTypeBool.go for implementation
 	Get([]byte) (interface{}, error)
+	//Compare is used for field comparison in simpleg. It accepts a string and two []byte. The string represents the comparison instruction to //be executed, the first []byte representing the raw value from database and the second representing raw value of a parammeter provided in
+	//query. it returns a boolean valued based on the comparison result and an error if there is any
+	//check file FieldTypeBool.go for implementation
 	Compare(string, []byte, []byte) (bool, error)
+	//CompareIndexed accepts a string and an interface. It is used in comparison for indexed fields. The string is the instruction and the
+	//interface is the parameter to be compared against. it returns a first string representation of the provided parameter, another string
+	//representation of the instruction that simpleg understands listed below
+	//"==" return all results that match parameter or which parameter is a prefix of
+	//"+=" return all results that are greater than or equal to parameter
+	//"+" return all results that are greater than parameter
+	//"-=" return all results that are less than or equal to parameter
+	//"-" return all results that are less than parameter
+	//the final returned varible is an error which will be a valid error if the function encouters an error
 	CompareIndexed(typ string, a interface{}) (string, string, error)
 }
 
+//AdvancedFieldType is the Interface that all AdvancedFieldtypes in simpleg Implement.
 type AdvancedFieldType interface {
+	//GetOption returns the options of type map[string]string for the FieldType. Only 1 option is currently provided
+	//check file FieldTypeArray.go for implementation
 	GetOption() map[string]string
+	//New can be customised based on type, it is not used by simpleg core
+	//check file FieldTypeArray.go for implementation
 	New(db *DB, params ...interface{}) (interface{}, []error)
+	//Set is responsible for saving information to DB and the implementation is left to the AdvancedFieldType. This is not called
+	// internally by simpleg.
+	//check file FieldTypeArray.go for implementation
 	Set(db *DB, params ...interface{}) []error
+	//Set is responsible for Getting data from DB and the implementation is left to the AdvancedFieldType. This is not called
+	// internally by simpleg.
+	//check file FieldTypeArray.go for implementation
 	Get(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error)
+	//Compare is responsible for comparison of fields. This is called internally by simpleg if a field of this particular type is used in
+	//a nodequery.
+	//check file FieldTypeArray.go for implementation
 	Compare(*badger.Txn, *DB, bool, string, []byte, []byte, string, string, interface{}) (bool, []error)
+	//Delete is responsible for deleting fields. This is called internally by simpleg if a field of this particular type is used in
+	//an object or a link that is to be deleted.
+	//check file FieldTypeArray.go for implementation
 	Delete(*badger.Txn, *DB, bool, string, []byte, []byte, string) []error
+	//Close is responsible for doimg all type cleanups when DB is about to shotdown
 	Close() error
 }
 
@@ -82,8 +137,11 @@ type Options struct {
 }
 
 func DefaultOptions() Options {
+	//opts = opts.WithValueLogFileSize(16 << 20) // 16 MB value log file
+	//opts = opts.WithMaxCacheSize(8 << 20)
+	//opts = opts.WithMaxTableSize(8 << 20)
 	ret := Options{
-		DBName:                 "simpleg",
+		DBName:                 "sg",
 		DBDelimiter:            "^",
 		KVWriterChannelLength:  500,
 		KVWriterGoroutineCount: 50,
@@ -92,17 +150,13 @@ func DefaultOptions() Options {
 		GetterChannelLength:    500,
 		GetterGoroutineCount:   50,
 		BadgerOptions:          badger.DefaultOptions("/data/simpleg")}
-	ret.BadgerOptions.Compression = options.None
 	ret.BadgerOptions.TableLoadingMode = options.FileIO
 	ret.BadgerOptions.ValueLogLoadingMode = options.FileIO
 	ret.BadgerOptions.Truncate = true
-	ret.BadgerOptions.DetectConflicts = false
-	ret.BadgerOptions.BlockCacheSize = int64(0)
-	ret.BadgerOptions.LoadBloomsOnOpen = false
 	return ret
 }
 
-// DB is simpleg's main db
+// DB :- is simpleg's main db
 type DB struct {
 	Options  Options
 	KV       *kv.KV

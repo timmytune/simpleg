@@ -1,3 +1,18 @@
+/*
+ * Copyright 2021 Adedoyin Yinka and Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package simpleg
 
 import (
@@ -6,6 +21,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	badger "github.com/dgraph-io/badger"
 )
 
 var s FieldTypeBool
@@ -62,7 +79,7 @@ func TestAll(t *testing.T) {
 
 	var w1 sync.WaitGroup
 	start = time.Now()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		w1.Add(1)
 		go func() {
 			defer w1.Done()
@@ -198,7 +215,7 @@ func TestAll(t *testing.T) {
 		w.Add(1)
 		go func() {
 			defer w.Done()
-			retGet := db.Get("object.single", "User", uint64(8))
+			retGet := db.Get("object.single", "User", uint64(2))
 			if len(retGet.Errors) > 0 {
 				t.Error("simpleg.Set Failed Test get user:", retGet)
 			}
@@ -236,6 +253,7 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
 	} else {
 		log.Print("---- 4444.1111 ---- ", len(retGet.Data.([]interface{})))
+		Log.Print("---- 4444.1111 ---- ", retGet.Data)
 	}
 
 	q = db.Query()
@@ -247,6 +265,7 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
 	} else {
 		log.Print("---- 4444.5555 ---- ", len(retGet.Data.([]interface{})))
+		Log.Print("---- 4444.5555 ---- ", retGet.Data)
 	}
 
 	q2 := db.Query()
@@ -266,6 +285,34 @@ func TestAll(t *testing.T) {
 
 	//--------------------------------------- Set Friend Links up to 800
 	//var wg2 sync.WaitGroup
+
+	time.Sleep(1 * time.Second)
+
+	prefix := []byte(db.Options.DBName)
+	opt := badger.DefaultIteratorOptions
+	opt.Prefix = prefix
+	opt.PrefetchSize = 20
+	opt.PrefetchValues = false
+	txn := db.KV.DB.NewTransaction(false)
+	defer txn.Discard()
+	iterator := txn.NewIterator(opt)
+	brk := false
+	iterator.Seek(prefix)
+	for !brk {
+		if !iterator.ValidForPrefix(prefix) {
+			iterator.Close()
+			break
+		}
+		item := iterator.Item()
+		var key []byte
+		key = item.KeyCopy(key)
+		//kArray := bytes.Split(key, []byte(db.KV.D))
+		//f, _ := binary.Uvarint(kArray[3])
+		//t, _ := binary.Uvarint(kArray[4])
+		//log.Printf("%s %s %s %s", string(kArray[1]), string(kArray[2]), strconv.Itoa(int(f)), strconv.Itoa(int(t)))
+		//Log.Print(string(key))
+		iterator.Next()
+	}
 
 	start = time.Now()
 	for i := 0; i < 10; i++ {

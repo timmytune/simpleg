@@ -3,13 +3,14 @@ package keyvalue
 import (
 	"bytes"
 	"context"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v2"
-	"github.com/dgraph-io/badger/v2/pb"
+	badger "github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/pb"
 	"github.com/rs/zerolog"
 )
 
@@ -80,6 +81,7 @@ func Open(kvOption KVOption, badgerOption badger.Options) (*KV, error) {
 	s := KV{D: kvOption.D}
 	db, err := badger.Open(badgerOption)
 	if err != nil {
+		log.Println("errr", err)
 		Log.Fatal().Interface("error", err).Msg("initialization failed")
 		return nil, err
 	}
