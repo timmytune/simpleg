@@ -22,7 +22,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v3"
+	badger "github.com/dgraph-io/badger"
 )
 
 //User Object
@@ -842,7 +842,7 @@ func GetLikeLinkOption() LinkTypeOptions {
 
 func InitDB() *DB {
 	opt := DefaultOptions()
-	db := GetNewDB()
+	db := &DB{}
 	db.Init(opt)
 	db.AddObjectType(GetUserOption())
 	db.AddObjectType(GetPostOption())

@@ -5,6 +5,8 @@ go 1.14
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/badoux/checkmail v0.0.0-20200623144435-f9f80cb795fa
+	github.com/dgraph-io/badger v1.6.2
+	github.com/dgraph-io/badger/v2 v2.2007.2
 	github.com/dgraph-io/badger/v3 v3.2011.1
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/fatih/structs v1.1.0 // indirect

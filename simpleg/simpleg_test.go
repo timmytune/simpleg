@@ -21,6 +21,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	badger "github.com/dgraph-io/badger"
 )
 
 var s FieldTypeBool
@@ -44,7 +46,7 @@ func TestMain(m *testing.M) {
 	ret := m.Run()
 
 	db.Close()
-	//os.RemoveAll("/data/simpleg")
+	os.RemoveAll("/data/simpleg")
 	os.Exit(ret)
 
 }
@@ -286,31 +288,31 @@ func TestAll(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	// prefix := []byte(db.Options.DBName)
-	// opt := badger.DefaultIteratorOptions
-	// opt.Prefix = prefix
-	// opt.PrefetchSize = 20
-	// opt.PrefetchValues = false
-	// txn := db.KV.DB.NewTransaction(false)
-	// defer txn.Discard()
-	// iterator := txn.NewIterator(opt)
-	// brk := false
-	// iterator.Seek(prefix)
-	// for !brk {
-	// 	if !iterator.ValidForPrefix(prefix) {
-	// 		iterator.Close()
-	// 		break
-	// 	}
-	// 	item := iterator.Item()
-	// 	var key []byte
-	// 	key = item.KeyCopy(key)
-	// 	kArray := bytes.Split(key, []byte(db.KV.D))
-	// 	f, _ := binary.Uvarint(kArray[3])
-	// 	t, _ := binary.Uvarint(kArray[4])
-	// 	log.Printf("%s %s %s %s", string(kArray[1]), string(kArray[2]), strconv.Itoa(int(f)), strconv.Itoa(int(t)))
-	// 	Log.Print(string(key))
-	// 	iterator.Next()
-	// }
+	prefix := []byte(db.Options.DBName)
+	opt := badger.DefaultIteratorOptions
+	opt.Prefix = prefix
+	opt.PrefetchSize = 20
+	opt.PrefetchValues = false
+	txn := db.KV.DB.NewTransaction(false)
+	defer txn.Discard()
+	iterator := txn.NewIterator(opt)
+	brk := false
+	iterator.Seek(prefix)
+	for !brk {
+		if !iterator.ValidForPrefix(prefix) {
+			iterator.Close()
+			break
+		}
+		item := iterator.Item()
+		var key []byte
+		key = item.KeyCopy(key)
+		//kArray := bytes.Split(key, []byte(db.KV.D))
+		//f, _ := binary.Uvarint(kArray[3])
+		//t, _ := binary.Uvarint(kArray[4])
+		//log.Printf("%s %s %s %s", string(kArray[1]), string(kArray[2]), strconv.Itoa(int(f)), strconv.Itoa(int(t)))
+		//Log.Print(string(key))
+		iterator.Next()
+	}
 
 	start = time.Now()
 	for i := 0; i < 10; i++ {

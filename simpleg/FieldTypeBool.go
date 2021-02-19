@@ -60,14 +60,22 @@ func (f *FieldTypeBool) Get(v []byte) (interface{}, error) {
 func (f *FieldTypeBool) Compare(typ string, a []byte, b []byte) (bool, error) {
 	var err error
 	if typ == "==" {
-		return bytes.Compare(a, b) == 0, err
+		return f.equal(a, b), err
 	}
 	if typ == "!=" {
-		return bytes.Compare(a, b) != 0, err
+		return f.notEqual(a, b), err
 	}
 	return false, errors.New("type bool does not support this comparison operator")
 }
 
 func (f *FieldTypeBool) CompareIndexed(typ string, a interface{}) (string, string, error) {
 	return "", "", errors.New("fieldtype bool does not support this comparison operator for indexed field")
+}
+
+func (f *FieldTypeBool) equal(a, b []byte) bool {
+	return bytes.Compare(a, b) == 0
+}
+
+func (f *FieldTypeBool) notEqual(a, b []byte) bool {
+	return bytes.Compare(a, b) != 0
 }

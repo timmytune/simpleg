@@ -21,8 +21,8 @@ import (
 	"runtime/debug"
 	"sync"
 
-	badger "github.com/dgraph-io/badger/v3"
-	badgerOptions "github.com/dgraph-io/badger/v3/options"
+	badger "github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/options"
 	"github.com/rs/zerolog"
 	kv "github.com/timmytune/simpleg/keyvalue"
 )
@@ -150,10 +150,9 @@ func DefaultOptions() Options {
 		GetterChannelLength:    500,
 		GetterGoroutineCount:   50,
 		BadgerOptions:          badger.DefaultOptions("/data/simpleg")}
-
-	ret.BadgerOptions.Compression = badgerOptions.None
-	ret.BadgerOptions.DetectConflicts = false
-	ret.BadgerOptions.IndexCacheSize = 512 << 20
+	ret.BadgerOptions.TableLoadingMode = options.FileIO
+	ret.BadgerOptions.ValueLogLoadingMode = options.FileIO
+	ret.BadgerOptions.Truncate = true
 	return ret
 }
 
@@ -395,8 +394,4 @@ func (db *DB) AddLinkType(l LinkTypeOptions) error {
 	}
 	db.LT[l.Name] = l
 	return err
-}
-
-func GetNewDB() *DB {
-	return &DB{}
 }
