@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	badger "github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v3"
 )
 
 type WriterData struct {
