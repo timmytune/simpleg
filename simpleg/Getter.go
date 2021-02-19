@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	badger "github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v3"
 )
 
 type NodeQueryInstruction struct {

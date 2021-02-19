@@ -20,7 +20,7 @@ import (
 	"errors"
 	"runtime/debug"
 
-	badger "github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v3"
 )
 
 type SetterJob struct {
