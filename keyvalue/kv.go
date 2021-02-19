@@ -2,14 +2,13 @@ package keyvalue
 
 import (
 	"bytes"
-	"context"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v2"
-	"github.com/dgraph-io/badger/v2/pb"
+	badger "github.com/dgraph-io/badger/v3"
 	"github.com/rs/zerolog"
 )
 
@@ -80,6 +79,7 @@ func Open(kvOption KVOption, badgerOption badger.Options) (*KV, error) {
 	s := KV{D: kvOption.D}
 	db, err := badger.Open(badgerOption)
 	if err != nil {
+		log.Println("errr", err)
 		Log.Fatal().Interface("error", err).Msg("initialization failed")
 		return nil, err
 	}
@@ -206,38 +206,6 @@ func (s *KV) WriteDelete(key ...string) error {
 	var err error
 	err = s.Writer.Delete([]byte(strings.Join(key, s.D)))
 	return err
-}
-
-// Stream a very
-func (s *KV) Stream(prefix []string, chooseKey func(*badger.Item) bool) (*pb.KVList, error) {
-	var err error
-	var w *pb.KVList
-
-	stream := s.DB.NewStream()
-
-	stream.NumGo = 4 // Set number of goroutines to use for iteration.
-
-	stream.LogPrefix = "Badger.Streaming" // For identifying stream logs. Outputs to Logger.
-
-	if chooseKey != nil {
-		stream.ChooseKey = chooseKey
-	}
-
-	stream.KeyToList = nil
-
-	stream.Send = func(list *pb.KVList) error {
-		var err error
-		w = list // Write to w.
-		return err
-	}
-
-	// Run the stream
-	if err = stream.Orchestrate(context.Background()); err != nil {
-		return nil, err
-	}
-
-	return w, err
-	// Done.
 }
 
 // FlushWrites Persist all pending writes
