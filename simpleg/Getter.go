@@ -328,6 +328,9 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 		i.notFirst = true
 	}
 	for notValid {
+		if !i.iterator.Valid() {
+			return r, false, nil
+		}
 		item := i.iterator.Item()
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.db.KV.D))
@@ -336,6 +339,9 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
 			if string(kArray[2]) != i.field {
 				i.iterator.Next()
+				if !i.iterator.Valid() {
+					return r, false, nil
+				}
 				item = i.iterator.Item()
 				k = item.KeyCopy(k)
 				kArray = bytes.Split(k, []byte(i.db.KV.D))
@@ -1613,6 +1619,9 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 	notValid := true
 
 	for notValid {
+		if !i.iterator.Valid() {
+			return r, false, nil
+		}
 		item := i.iterator.Item()
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
@@ -1620,6 +1629,9 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
 			if string(kArray[2]) != i.field {
 				i.iterator.Next()
+				if !i.iterator.Valid() {
+					return r, false, nil
+				}
 				item = i.iterator.Item()
 				k = item.KeyCopy(k)
 				kArray = bytes.Split(k, []byte(i.g.DB.KV.D))

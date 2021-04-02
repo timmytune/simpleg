@@ -550,5 +550,6 @@ Query in Simpleg is responsible for retieving data and 'db.Get' uses a Query int
 	//if you use 'skip' then the return funtion is skipped and you have to provide another function that will work in its place, we will talk more about functions later 
 	retGet := q.Return("array", "da")
 ```
-The returned result is of the type simpleg.GetterRet 
+The returned result is of the type simpleg.GetterRet, retGet.Data is of type interface{} that holds the returned result and retGet.Errors holds the errors retured if any. To avoid exceptions, you have to check if any error is returned, if it is then retGet.Data will be invalid.
+
 

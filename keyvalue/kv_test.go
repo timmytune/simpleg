@@ -17,7 +17,6 @@ func TestMain(m *testing.M) {
 	kd := GetDefaultKVOptions()
 	kd.D = "+"
 	bd := BadgerDefaultOptions("/data/badgerTest")
-	bd.Truncate = true
 	k, err := Open(kd, bd)
 	s = k
 	if err != nil {
@@ -148,19 +147,6 @@ func TestRead(t *testing.T) {
 	}
 
 	//log.Print(val)
-}
-
-func TestStream(t *testing.T) {
-	start := time.Now()
-	data, err := s.Stream([]string{"key9", "key2"}, nil)
-	elapsed := time.Since(start)
-	log.Print("LLLLLLLLLLLLLLLLLLLLLLLLL", data)
-	if err != nil {
-		t.Error("Set operation failed:", err)
-	}
-	log.Printf("Get stream took %s", elapsed)
-	//log.Print(data)
-
 }
 
 func TestAddNum(t *testing.T) {
