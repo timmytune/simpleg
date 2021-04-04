@@ -1222,7 +1222,7 @@ func (g *GetterFactory) Run() {
 		r := recover()
 		if r != nil {
 			ret := GetterRet{}
-			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in Getter.Run ")
+			Log.Error().Interface("recovered", r).Stack().Interface("stack", string(debug.Stack())).Msg("Recovered in Getter.Run ")
 			if ret.Errors == nil {
 				ret.Errors = make([]error, 0)
 			}
