@@ -150,7 +150,7 @@ func DefaultOptions() Options {
 		SetterGoroutineCount:   25,
 		GetterChannelLength:    500,
 		GetterGoroutineCount:   50,
-		LoggerFile:             "/simpleg.log",
+		LoggerFile:             "./simpleg.log",
 		BadgerOptions:          badger.DefaultOptions("/data/simpleg")}
 
 	ret.BadgerOptions.Compression = badgerOptions.None
@@ -211,7 +211,7 @@ func (db *DB) Set(ins string, d ...interface{}) (s SetterRet) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in DB.Set ")
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in DB.Set ")
 			s = SetterRet{}
 			if s.Errors == nil {
 				s.Errors = make([]error, 0)
@@ -244,7 +244,7 @@ func (db *DB) Delete(ins string, d ...interface{}) (s SetterRet) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in DB.Set ")
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in DB.Set ")
 			s = SetterRet{}
 			if s.Errors == nil {
 				s.Errors = make([]error, 0)
@@ -268,7 +268,7 @@ func (db *DB) Get(ins string, d ...interface{}) (ret GetterRet) {
 	defer func() {
 		r := recover()
 		if r != nil {
-			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in DB.Get ")
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in DB.Get ")
 			if ret.Errors == nil {
 				ret.Errors = make([]error, 0)
 			}

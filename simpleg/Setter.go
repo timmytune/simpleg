@@ -605,7 +605,7 @@ func (s *SetterFactory) Run() {
 	defer func() {
 		r := recover()
 		if r != nil {
-			Log.Error().Interface("recovered", r).Interface("stack", debug.Stack()).Msg("Recovered in Setter.Run ")
+			Log.Error().Interface("recovered", r).Interface("stack", string(debug.Stack())).Msg("Recovered in Setter.Run ")
 			if er.Errors == nil {
 				er.Errors = make([]error, 0)
 			}

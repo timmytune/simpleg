@@ -416,13 +416,13 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			buffer.WriteString(i.field)
 			item2, err := i.txn.Get(buffer.Bytes())
 			if err != nil && err != badger.ErrKeyNotFound {
-				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
+				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
 			}
 			if item2 != nil {
 				v, err := item2.ValueCopy(nil)
 				if err != nil {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
+					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
 					return nil, false, err
 				}
 				boa := false
@@ -715,7 +715,7 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 					item, err := txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
 					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
 						return &ret, errs
 					} else if err == nil && item != nil {
@@ -728,7 +728,7 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 							}
 							val, err = item.ValueCopy(nil)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								errs = append(errs, err)
 								return &ret, errs
 							}
@@ -1087,7 +1087,7 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 				item2, err := txn.Get(buffer.Bytes())
 				if err != nil && err == badger.ErrKeyNotFound {
 				} else if err != nil && err != badger.ErrKeyNotFound {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 					errs = append(errs, err)
 					iterator.Close()
 					return &ret, errs
@@ -1101,7 +1101,7 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 						}
 						val, err = item2.ValueCopy(nil)
 						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 							iterator.Close()
 							errs = append(errs, err)
 							return &ret, errs
@@ -1708,13 +1708,13 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 			buffer.WriteString(i.field)
 			item2, err := i.txn.Get(buffer.Bytes())
 			if err != nil && err != badger.ErrKeyNotFound {
-				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
+				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
 			} else if item2 == nil {
 			} else {
 				v, err = item2.ValueCopy(v)
 				if err != nil {
-					Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
+					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(buffer.Bytes())).Msg("Getting value for key in Badger threw error")
 					return nil, false, err
 				}
 
@@ -1876,7 +1876,7 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 					if err != nil && err == badger.ErrKeyNotFound {
 						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						e = append(e, err)
 						return
 					} else if err == nil && item != nil {
@@ -1889,7 +1889,7 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 							}
 							val, err = item.ValueCopy(nil)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								e = append(e, err)
 								return
 							}
@@ -2056,7 +2056,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 					if err != nil && err == badger.ErrKeyNotFound {
 						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
 						i.iterator.Close()
 						return
@@ -2070,7 +2070,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 							}
 							val, err = item2.ValueCopy(nil)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								i.iterator.Close()
 								errs = append(errs, err)
 								return
@@ -2242,7 +2242,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 					if err != nil && err == badger.ErrKeyNotFound {
 						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
 						i.iterator.Close()
 						return
@@ -2256,7 +2256,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 							}
 							val, err = item2.ValueCopy(nil)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								i.iterator.Close()
 								errs = append(errs, err)
 								return
@@ -2405,7 +2405,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 					if err != nil && err == badger.ErrKeyNotFound {
 						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
 						i.iterator.Close()
 						return
@@ -2419,7 +2419,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 							}
 							val, err = item2.ValueCopy(nil)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								i.iterator.Close()
 								errs = append(errs, err)
 								return
@@ -2574,7 +2574,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 					if err != nil && err == badger.ErrKeyNotFound {
 						failed = true
 					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
 						i.iterator.Close()
 						return
@@ -2588,7 +2588,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 							}
 							val, err = item2.ValueCopy(nil)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								i.iterator.Close()
 								errs = append(errs, err)
 								return
@@ -2770,7 +2770,7 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 			if err != nil && err == badger.ErrKeyNotFound {
 				failed = true
 			} else if err != nil && err != badger.ErrKeyNotFound {
-				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Msg("Getting value for key in Badger threw error again")
+				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 				errs = append(errs, err)
 				return
 			} else if err == nil && item2 != nil {
@@ -2783,7 +2783,7 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 					}
 					val, err = item2.ValueCopy(nil)
 					if err != nil {
-						Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", debug.Stack()).Msg("Getting value for key after getting item in Badger threw error")
+						Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 						errs = append(errs, err)
 						return
 					}

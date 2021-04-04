@@ -843,7 +843,10 @@ func GetLikeLinkOption() LinkTypeOptions {
 func InitDB() *DB {
 	opt := DefaultOptions()
 	db := GetNewDB()
-	db.Init(opt)
+	err := db.Init(opt)
+	if err != nil {
+		log.Panic(err)
+	}
 	db.AddObjectType(GetUserOption())
 	db.AddObjectType(GetPostOption())
 	db.AddLinkType(GetFriendLinkOption())
