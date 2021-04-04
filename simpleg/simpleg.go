@@ -133,6 +133,7 @@ type Options struct {
 	SetterGoroutineCount   int
 	GetterChannelLength    int
 	GetterGoroutineCount   int
+	LoggerFile             string
 	BadgerOptions          badger.Options
 }
 
@@ -149,6 +150,7 @@ func DefaultOptions() Options {
 		SetterGoroutineCount:   25,
 		GetterChannelLength:    500,
 		GetterGoroutineCount:   50,
+		LoggerFile:             "/simpleg.log",
 		BadgerOptions:          badger.DefaultOptions("/data/simpleg")}
 
 	ret.BadgerOptions.Compression = badgerOptions.None
@@ -174,7 +176,7 @@ type DB struct {
 }
 
 func (db *DB) Init(o Options) error {
-	file, err := os.OpenFile("simpleg.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	file, err := os.OpenFile(o.LoggerFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
