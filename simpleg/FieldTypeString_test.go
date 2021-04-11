@@ -77,4 +77,7 @@ func TestCompare2(t *testing.T) {
 	if _, f := z.Compare("return error", a, b); f == nil {
 		t.Error("FieldTypeString.Compare.return Failed Test:", f)
 	}
+	if d, _ := z.Compare("regex", []byte("peach"), []byte("p([a-z]+)ch")); d != true {
+		t.Error("FieldTypeString.Compare.regex Failed Test:", d)
+	}
 }

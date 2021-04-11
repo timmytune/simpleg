@@ -28,6 +28,7 @@ var z FieldTypeString
 var i FieldTypeInt64
 var u FieldTypeUint64
 var d FieldTypeDate
+var f FieldTypeFloat64
 var db *DB
 
 func TestMain(m *testing.M) {
@@ -37,6 +38,7 @@ func TestMain(m *testing.M) {
 	i = FieldTypeInt64{}
 	u = FieldTypeUint64{}
 	d = FieldTypeDate{}
+	f = FieldTypeFloat64{}
 
 	db = InitDB()
 	db.Start()

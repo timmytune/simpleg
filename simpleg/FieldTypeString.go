@@ -18,6 +18,7 @@ package simpleg
 import (
 	"bytes"
 	"errors"
+	"regexp"
 )
 
 type FieldTypeString struct {
@@ -51,9 +52,9 @@ func (f *FieldTypeString) Compare(typ string, a []byte, b []byte) (bool, error) 
 
 	switch typ {
 	case "==":
-		return (bytes.Compare(a, b) == 0), err
+		return bytes.Equal(a, b), err
 	case "!=":
-		return (bytes.Compare(a, b) != 0), err
+		return !bytes.Equal(a, b), err
 	case "contains":
 		return bytes.Contains(a, b), err
 	case "NoCaseEqual":
@@ -62,6 +63,12 @@ func (f *FieldTypeString) Compare(typ string, a []byte, b []byte) (bool, error) 
 		return bytes.HasSuffix(a, b), err
 	case "prefix":
 		return bytes.HasPrefix(a, b), err
+	case "regex":
+		r, err := regexp.Compile(string(b))
+		if err != nil {
+			return false, err
+		}
+		return r.MatchString(string(a)), nil
 	default:
 		return false, errors.New("fieldtype string does not support the comparison operator " + typ)
 	}

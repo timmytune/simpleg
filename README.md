@@ -410,6 +410,7 @@ Simpleg completely relies on fieldTypes to handle and compare fields and for thi
 |  NoCaseEqual  |               |   Checks if two strings are equal with case insesitivity |
 |  HasSuffix    |               |   Checks if one string is a suffix of another |
 |  prefix       |    prefix     |   Checks if one string is a prefix of another |
+|  regex        |               |   Checks if strings in this field match provided regex epression |
 
 ### FieldType uint64: works with the golang uint64 type
 | Compare         | Indexed      | Description  |
