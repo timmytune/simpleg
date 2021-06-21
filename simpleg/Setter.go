@@ -426,7 +426,7 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 	links := s.DB.LT
 	s.DB.RUnlock()
 	if !ok {
-		errs = append(errs, errors.New("Link of type '"+object+"' not found in DB"))
+		errs = append(errs, errors.New("object of type '"+object+"' not found in DB"))
 	}
 	txn := s.DB.KV.DB.NewTransaction(true)
 	defer txn.Discard()
@@ -482,6 +482,17 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 		if err != nil {
 			errs = append(errs, err)
 		}
+		karray := bytes.Split(k, []byte(s.DB.KV.D))
+		if objectType.Fields[string(karray[3])].Indexed {
+			v, err := item.ValueCopy(nil)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			err = txn.Delete([]byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + string(karray[3]) + s.DB.KV.D + string(v) + s.DB.KV.D + string(objectID)))
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
 		iterator3.Next()
 	}
 	iterator3.Close()
@@ -496,7 +507,11 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 			}
 		}
 	}
-	err := txn.Commit()
+	err := txn.Delete([]byte(s.DB.Options.DBName + s.DB.KV.D + object + s.DB.KV.D + "ID" + s.DB.KV.D + string(objectID) + s.DB.KV.D + string(objectID)))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = txn.Commit()
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -509,7 +524,7 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 	link, ok := s.DB.LT[object]
 	s.DB.RUnlock()
 	if !ok {
-		errs = append(errs, errors.New("Link of type '"+object+"' not found in DB"))
+		errs = append(errs, errors.New("link of type '"+object+"' not found in DB"))
 	}
 	txn := s.DB.KV.DB.NewTransaction(true)
 	defer txn.Discard()
@@ -658,11 +673,10 @@ func (s *SetterFactory) Run() {
 				job.Ret <- er
 				close(job.Ret)
 			}
-
 		case "save.link":
 			one, ok := job.Data[0].(string)
 			if !ok {
-				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+				er.Errors = append(er.Errors, errors.New("invalid first argument provided in nodequery"))
 			}
 			err := s.link(one, job.Data[1])
 			er.Errors = err
@@ -697,11 +711,11 @@ func (s *SetterFactory) Run() {
 		case "delete.object.field":
 			object, ok := job.Data[0].(string)
 			if !ok {
-				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+				er.Errors = append(er.Errors, errors.New("invalid first argument provided in nodequery"))
 			}
 			field, ok := job.Data[2].(string)
 			if !ok {
-				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in nodequery"))
+				er.Errors = append(er.Errors, errors.New("invalid first argument provided in nodequery"))
 			}
 			var val []byte
 			var err2 error
@@ -719,7 +733,7 @@ func (s *SetterFactory) Run() {
 				er.Errors = append(er.Errors, err2)
 			}
 			if !ok {
-				er.Errors = append(er.Errors, errors.New("Field not found for this Object in database"))
+				er.Errors = append(er.Errors, errors.New("field not found for this Object in database"))
 			}
 			if len(er.Errors) < 1 {
 				errs := s.DeleteObjectField(object, objectID, field, val, fieldTypeOptions)
@@ -792,7 +806,7 @@ func (s *SetterFactory) Run() {
 		case "delete.object":
 			object, ok := job.Data[0].(string)
 			if !ok {
-				er.Errors = append(er.Errors, errors.New("Invalid first argument provided in query argument"))
+				er.Errors = append(er.Errors, errors.New("invalid first argument provided in query argument"))
 			}
 			s.DB.RLock()
 			objectID, err := s.DB.FT["uint64"].Set(job.Data[1])
