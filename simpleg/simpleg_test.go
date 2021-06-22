@@ -77,6 +77,23 @@ func TestAll(t *testing.T) {
 	elapsed := time.Since(start)
 	Log.Printf("++++ Test Set 10 friend Object took %s", elapsed)
 
+	j := db.Get("object.new", "User")
+	if len(j.Errors) > 0 {
+		t.Error("simpleg.Set Failed Test get user:", j)
+	}
+	u9, _ := j.Data.(User)
+	u9.firstName = "Yinka"
+	u9.lastName = "Adedoyin"
+	u9.email = "timmytune002@gmail.com"
+	u9.age = int64(19)
+	u9.ID = uint64(4)
+	v := db.Set("save.object", "User", u9)
+	if len(v.Errors) != 0 {
+		t.Error("simpleg.Set Failed Test got:", v)
+	}
+
+	time.Sleep(2 * time.Second)
+
 	var w1 sync.WaitGroup
 	start = time.Now()
 	for i := 0; i < 20; i++ {
@@ -167,6 +184,16 @@ func TestAll(t *testing.T) {
 	uu.age = int64(12)
 	ret = db.Set("save.object", "User", uu)
 	if len(ret.Errors) == 0 {
+		t.Error("simpleg.Set Failed Test got:", ret)
+	}
+
+	uu.ID = uint64(4)
+	uu.firstName = "Femisola"
+	uu.lastName = "Adebara"
+	uu.email = "timmytune002@gmail.com"
+	uu.age = int64(12)
+	ret = db.Set("save.object", "User", uu)
+	if len(ret.Errors) != 0 {
 		t.Error("simpleg.Set Failed Test got:", ret)
 	}
 
@@ -332,6 +359,7 @@ func TestAll(t *testing.T) {
 		if (i + 1) != (9 - i + 1) {
 			r := db.Set("save.link", "Friend", f)
 			if len(r.Errors) > 0 {
+				Log.Print(f, "//////////////////////////////////////////////////////////")
 				t.Error("simpleg.Set Failed Test set Friend:", r.Errors)
 			}
 		}

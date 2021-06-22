@@ -47,8 +47,8 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 	fieldIndexed := s.DB.OT[objectType].Fields[fieldName].Indexed
 	allowIndexing := s.DB.FTO[s.DB.OT[objectType].Fields[fieldName].FieldType].AllowIndexing
 	s.DB.RUnlock()
-	if fieldIndexed == true && allowIndexing == true {
-		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, fieldName, string(id)))
+	if fieldIndexed && allowIndexing {
+		oldItem, oldErr := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, string(id), fieldName))
 		//If item does not exist in the db just create the new index only
 		if oldErr != nil && oldErr == badger.ErrKeyNotFound {
 			err = s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
@@ -64,11 +64,16 @@ func (s *SetterFactory) setObjectFieldIndex(tnx *badger.Txn, objectType string, 
 			return errOldValue
 		}
 		//Value has not changed so no need to update index
-		if bytes.Compare(oldValue, value) == 0 {
+		if bytes.Equal(oldValue, value) {
 			return nil
 		}
 		//Delete old index
+		//err = tnx.Delete(s.DB.KV.CombineKey(s.DB.Options.DBName, objectType, fieldName, string(oldValue), string(id)))
 		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, objectType, fieldName, string(oldValue), string(id))
+		if err != nil {
+			return err
+		}
+
 		//create new index
 
 		err = s.DB.KV.Writer2.Write(id, s.DB.Options.DBName, objectType, fieldName, string(value), string(id))
@@ -119,6 +124,8 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 			e = append(e, er)
 			return i, e
 		}
+	} else {
+		s.DB.KV.Writer2.Write(m[KeyValueKey{Main: "ID"}], s.DB.Options.DBName, typ, "ID", string(m[KeyValueKey{Main: "ID"}]), string(m[KeyValueKey{Main: "ID"}]))
 	}
 	ib = m[KeyValueKey{Main: "ID"}]
 	delete(m, KeyValueKey{Main: "ID"})
@@ -227,6 +234,10 @@ func (s *SetterFactory) objectField(objectTypeName string, objectId uint64, fiel
 	var fieldNewValueValidated interface{}
 	if objectTypeField.Validate != nil {
 		ok, fieldNewValueValidated, er = objectTypeField.Validate(fieldNewValue, s.DB)
+		if !ok {
+			e = append(e, errors.New("validation failed for  '"+objectTypeName+"' Field:"+fieldName))
+			return objectId, e
+		}
 	} else {
 		fieldNewValueValidated = fieldNewValue
 	}
