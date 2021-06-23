@@ -600,7 +600,13 @@ func (g *GetterFactory) getObjectMapArray(o *ObjectList) ([]map[string]interface
 		va := make(map[string]interface{})
 		for k, v := range val {
 			if k.Main != "ID" {
-				va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT[ot.Fields[k.GetFullString(g.DB.KV.D)].FieldType].Get(v)
+				ft := ot.Fields[k.GetFullString(g.DB.KV.D)].FieldType
+				if ft != "date" {
+					va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT[ft].Get(v)
+				} else {
+					va[k.GetFullString(g.DB.KV.D)] = string(v)
+				}
+
 				if err != nil {
 					errs = append(errs, err)
 				}
