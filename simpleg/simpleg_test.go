@@ -958,43 +958,43 @@ func TestAll(t *testing.T) {
 		log.Print("---- dddd.7 ---- ", len(retQuery.Data.(map[string]interface{})["post"].([]map[string]interface{})))
 	}
 
-	n6 = NodeQuery{}
-	n6.Name("da").Object("User")
+	users1 := NodeQuery{}
+	users1.Name("users1").Object("User").SetFields("firstName.email")
 
-	friends = NodeQuery{}
-	friends.Link("Friend", "->").Name("link").Limit(100) //.Skip(10)
+	isFriend := NodeQuery{}
+	isFriend.Link("Friend", "-").Name("isFriend").Limit(100) //.Skip(10)
 
-	mutual = NodeQuery{}
-	mutual.Object("User").Name("mutual")
+	users2 := NodeQuery{}
+	users2.Object("User").Name("users2").SetFields("firstName")
 
-	friends2 = NodeQuery{}
-	friends2.Link("Friend", "<-").Name("link2")
+	isFriend2 := NodeQuery{}
+	isFriend2.Link("Friend", "-").Name("isFriend2")
 
-	endUser = NodeQuery{}
-	endUser.Object("User").Q("activities", "count-g", 2).Limit(100).Name("last")
+	users3 := NodeQuery{}
+	users3.Object("User").Q("activities", "count-g", 2).Limit(100).Name("users3")
 
-	likes = NodeQuery{}
-	likes.Link("Like", "->").Limit(100).Name("like")
-
-	post = NodeQuery{}
-	post.Object("Post").Limit(100).Name("post") //.Q("ID", "==", uint64(19))
+	users4 := NodeQuery{}
+	users4.Name("users4").Object("User").SetFields("firstName.email")
 
 	query = db.Query()
-	query.Do("object", n6)
-	query.Do("graph.s.o", "da", friends2, mutual, friends, endUser, likes, post)
-	query.Do("return.map", "map", "da", "last", "link2", "mutual", "link", "like", "post")
+	query.Do("object", users1)
+	query.Do("object", users4)
+	query.Do("graph.p.o", "users1", isFriend, users2)
+	query.Do("embeded", "emb", "users1", "User", isFriend, users2)
+	query.Do("embeded", "emb2", "users4", "User", isFriend, users2, isFriend2, users1)
+	query.Do("return.map", "map", "users1", "emb2")
 	retQuery = query.Return("skip")
 	if len(retQuery.Errors) > 0 {
 		Log.Printf("---- Test Get Link had the following errors %s", retQuery.Errors)
 		t.Error("simpleg.Get Failed Test get Friend:", retQuery.Errors)
 	} else {
-		log.Print("---- eeee.5 ---- ", len(retQuery.Data.(map[string]interface{})["da"].([]map[string]interface{})))
-		log.Print("---- eeee.2 ---- ", len(retQuery.Data.(map[string]interface{})["link2"].([]map[string]interface{})))
-		log.Print("---- eeee.3 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]map[string]interface{})))
-		log.Print("---- eeee.4 ---- ", len(retQuery.Data.(map[string]interface{})["link"].([]map[string]interface{})))
-		log.Print("---- eeee.1 ---- ", len(retQuery.Data.(map[string]interface{})["last"].([]map[string]interface{})))
-		log.Print("---- eeee.6 ---- ", len(retQuery.Data.(map[string]interface{})["like"].([]map[string]interface{})))
-		log.Print("---- eeee.7 ---- ", len(retQuery.Data.(map[string]interface{})["post"].([]map[string]interface{})))
+		//log.Print("---- eeee.5 ---- ", len(retQuery.Data.(map[string]interface{})["users1"].([]map[string]interface{})))
+		//log.Print("---- eeee.2 ---- ", len(retQuery.Data.(map[string]interface{})["isFriend"].([]map[string]interface{})))
+		//log.Print("---- eeee.3 ---- ", len(retQuery.Data.(map[string]interface{})["users2"].([]map[string]interface{})))
+		m := retQuery.Data.(map[string]interface{})
+
+		Log.Print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", m["emb2"])
+		Log.Print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", m["users1"])
 	}
 
 }
