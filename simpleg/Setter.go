@@ -188,7 +188,7 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 	if err != nil {
 		e = append(e, err)
 	}
-	data, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, typ, "INDEXED+", string(to), string(from)))
+	data, err := tnx.Get(s.DB.KV.CombineKey(s.DB.Options.DBName, typ, "+", string(to), string(from)))
 	// if opposites are the same just use prexisting link
 
 	if data != nil && (lt.Type == 1 || lt.Type == 2) {
@@ -205,11 +205,11 @@ func (s *SetterFactory) link(typ string, o interface{}) []error {
 				e = append(e, err)
 			}
 		}
-		err := s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED-", string(to), string(from))
+		err := s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "-", string(to), string(from))
 		if err != nil {
 			e = append(e, err)
 		}
-		err = s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "INDEXED+", string(from), string(to))
+		err = s.DB.KV.Writer2.Write(make([]byte, 0), s.DB.Options.DBName, typ, "+", string(from), string(to))
 		if err != nil {
 			e = append(e, err)
 		}
@@ -444,7 +444,7 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 	for k, v := range links {
 		if v.From == object || v.To == object {
 			opt := badger.DefaultIteratorOptions
-			opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED+" + s.DB.KV.D + string(objectID))
+			opt.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "+" + s.DB.KV.D + string(objectID))
 			opt.PrefetchSize = 10
 			opt.PrefetchValues = false
 			iterator := txn.NewIterator(opt)
@@ -463,7 +463,7 @@ func (s *SetterFactory) DeleteObject(object string, objectID []byte) []error {
 			opt2 := badger.DefaultIteratorOptions
 			opt2.PrefetchSize = 10
 			opt2.PrefetchValues = false
-			opt2.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "INDEXED-" + s.DB.KV.D + string(objectID))
+			opt2.Prefix = []byte(s.DB.Options.DBName + s.DB.KV.D + k + s.DB.KV.D + "-" + s.DB.KV.D + string(objectID))
 			iterator2 := txn.NewIterator(opt2)
 			iterator2.Seek(opt.Prefix)
 			for iterator2.ValidForPrefix(opt.Prefix) {
@@ -574,21 +574,21 @@ func (s *SetterFactory) DeleteLink(object string, objectFrom []byte, objectTo []
 		}
 		iterator.Close()
 	}
-	err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectFrom), string(objectTo))
+	err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "+", string(objectFrom), string(objectTo))
 	if err != nil {
 		errs = append(errs, err)
 	}
-	err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectTo), string(objectFrom))
+	err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "-", string(objectTo), string(objectFrom))
 	if err != nil {
 		errs = append(errs, err)
 	}
 
 	if link.Type == 1 || link.Type == 2 {
-		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED+", string(objectTo), string(objectFrom))
+		err := s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "+", string(objectTo), string(objectFrom))
 		if err != nil {
 			errs = append(errs, err)
 		}
-		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "INDEXED-", string(objectFrom), string(objectTo))
+		err = s.DB.KV.Writer2.Delete(s.DB.Options.DBName, object, "-", string(objectFrom), string(objectTo))
 		if err != nil {
 			errs = append(errs, err)
 		}

@@ -1045,9 +1045,9 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 			g.DB.RUnlock()
 			indexed := ""
 			if node.Direction == "->" {
-				indexed = "INDEXED+"
+				indexed = "+"
 			} else {
-				indexed = "INDEXED-"
+				indexed = "-"
 			}
 			prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + indexed + g.DB.KV.D + string(f) + g.DB.KV.D + string(t)
 			_, err = txn.Get([]byte(prefix))
@@ -1106,9 +1106,9 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 			}
 			indexed := ""
 			if node.Direction == "->" {
-				indexed = "INDEXED+"
+				indexed = "+"
 			} else {
-				indexed = "INDEXED-"
+				indexed = "-"
 			}
 			prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + indexed + g.DB.KV.D + string(f)
 
@@ -1182,11 +1182,11 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 
 	var prefix []byte
 	if node.Direction == "<-" {
-		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "INDEXED-")
+		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "-")
 	} else if node.Direction == "->" {
-		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "INDEXED+")
+		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "+")
 	} else if node.Direction == "-" {
-		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "INDEXED+")
+		prefix = []byte(g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "+")
 	}
 	opt := badger.DefaultIteratorOptions
 	opt.Prefix = prefix
@@ -2360,9 +2360,9 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 	switch i.node.Direction {
 	case "->", "<-":
 		if i.node.Direction == "->" {
-			i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED+" + i.g.DB.KV.D + string(from)
+			i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "+" + i.g.DB.KV.D + string(from)
 		} else {
-			i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED-" + i.g.DB.KV.D + string(from)
+			i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "-" + i.g.DB.KV.D + string(from)
 		}
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
@@ -2540,7 +2540,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 			return
 		}
 		i.currentDirection = "->"
-		i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED+" + i.g.DB.KV.D + string(from)
+		i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "+" + i.g.DB.KV.D + string(from)
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
@@ -2550,7 +2550,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 		for !loaded {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "->" {
 				i.currentDirection = "<-"
-				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED-" + i.g.DB.KV.D + string(from)
+				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "-" + i.g.DB.KV.D + string(from)
 				opt := badger.DefaultIteratorOptions
 				opt.Prefix = []byte(i.prefix)
 				opt.PrefetchSize = 20
@@ -2882,7 +2882,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 		for !loaded {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "->" {
 				i.currentDirection = "<-"
-				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "INDEXED-" + i.g.DB.KV.D + string(i.from)
+				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "-" + i.g.DB.KV.D + string(i.from)
 				opt := badger.DefaultIteratorOptions
 				opt.Prefix = []byte(i.prefix)
 				opt.PrefetchSize = 20
