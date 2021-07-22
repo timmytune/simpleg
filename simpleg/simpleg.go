@@ -137,7 +137,7 @@ type Options struct {
 	BadgerOptions          badger.Options
 }
 
-func DefaultOptions() Options {
+func DefaultOptions(dir string) Options {
 	//opts = opts.WithValueLogFileSize(16 << 20) // 16 MB value log file
 	//opts = opts.WithMaxCacheSize(8 << 20)
 	//opts = opts.WithMaxTableSize(8 << 20)
@@ -151,7 +151,7 @@ func DefaultOptions() Options {
 		GetterChannelLength:    500,
 		GetterGoroutineCount:   50,
 		LoggerFile:             "./simpleg.log",
-		BadgerOptions:          badger.DefaultOptions("/data/simpleg")}
+		BadgerOptions:          badger.DefaultOptions(dir)}
 
 	ret.BadgerOptions.Compression = badgerOptions.None
 	ret.BadgerOptions.DetectConflicts = false

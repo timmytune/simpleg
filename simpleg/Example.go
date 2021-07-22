@@ -841,7 +841,7 @@ func GetLikeLinkOption() LinkTypeOptions {
 }
 
 func InitDB() *DB {
-	opt := DefaultOptions()
+	opt := DefaultOptions("/data/simpleg")
 	db := GetNewDB()
 	err := db.Init(opt)
 	if err != nil {

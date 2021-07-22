@@ -16,8 +16,8 @@
 package simpleg
 
 import (
-	"encoding/binary"
 	"errors"
+	"strconv"
 )
 
 type FieldTypeUint64 struct {
@@ -38,23 +38,22 @@ func (f *FieldTypeUint64) New() interface{} {
 func (f *FieldTypeUint64) Set(v interface{}) ([]byte, error) {
 	d, ok := v.(uint64)
 	if !ok {
-		return nil, errors.New("Interface is not of type of uint64")
+		return nil, errors.New("interface is not of type of uint64")
 	}
-
-	buf := make([]byte, binary.MaxVarintLen64)
-	binary.PutUvarint(buf, d)
+	var buf []byte
+	buf = strconv.AppendUint(buf, d, 10)
 	return buf, nil
 }
 
 func (f *FieldTypeUint64) Get(v []byte) (interface{}, error) {
-	i, _ := binary.Uvarint(v)
+	i, _ := strconv.ParseUint(string(v), 10, 64)
 	return i, nil
 }
 
 func (f *FieldTypeUint64) Compare(typ string, a []byte, b []byte) (bool, error) {
 	var err error
-	ia, _ := binary.Uvarint(a)
-	ib, _ := binary.Uvarint(b)
+	ia, _ := strconv.ParseUint(string(a), 10, 64)
+	ib, _ := strconv.ParseUint(string(b), 10, 64)
 
 	switch typ {
 	case "==":
