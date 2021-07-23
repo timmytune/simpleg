@@ -321,6 +321,15 @@ func (i *iteratorLoader) close() {
 		i.iterator.Close()
 	}
 }
+func getItem(i *badger.Iterator) (item *badger.Item, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New("badger could not find item")
+		}
+	}()
+	item = i.Item()
+	return
+}
 func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 	r := make(map[KeyValueKey][]byte)
 	var k []byte
@@ -334,7 +343,10 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 	}
 	for notValid {
 
-		item := i.iterator.Item()
+		item, err := getItem(i.iterator)
+		if err != nil {
+			return r, false, nil
+		}
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.db.KV.D))
 
@@ -343,7 +355,10 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
 			if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 				i.iterator.Next()
-				item = i.iterator.Item()
+				item, err = getItem(i.iterator)
+				if err != nil {
+					return r, false, nil
+				}
 				k = item.KeyCopy(k)
 				kArray = bytes.Split(k, []byte(i.db.KV.D))
 				if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
@@ -1984,14 +1999,20 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 
 	for notValid {
 
-		item := i.iterator.Item()
+		item, err := getItem(i.iterator)
+		if err != nil {
+			return r, false, nil
+		}
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
 		if i.indexed {
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
 			if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 				i.iterator.Next()
-				item = i.iterator.Item()
+				item, err = getItem(i.iterator)
+				if err != nil {
+					return r, false, nil
+				}
 				k = item.KeyCopy(k)
 				kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
 				if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
