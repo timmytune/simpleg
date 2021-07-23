@@ -219,6 +219,7 @@ type iteratorLoader struct {
 	txn       *badger.Txn
 	notFirst  bool
 	prefix    string
+	prefix2   string
 	fieldType FieldType
 	query     []NodeQueryInstruction
 	db        *DB
@@ -265,41 +266,38 @@ func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQuer
 	index := ""
 	//i.iterator = txn.NewIterator()
 
-	if i.indexed {
-		for _, d := range inst {
-			val, ins, err := i.fieldType.CompareIndexed(d.action, d.param)
-			if err != nil {
-				errs = append(errs, err)
-			}
-			switch ins {
-			case "==":
-				i.center.ins = ins
-				i.center.val = val
-			case ">=":
-				i.left.ins = ins
-				i.left.val = val
-			case ">":
-				i.left.ins = ins
-				i.left.val = val
-			case "<=":
-				i.right.ins = ins
-				i.right.val = val
-			case "<":
-				i.right.ins = ins
-				i.right.val = val
-			}
+	if i.indexed && len(inst) > 0 {
+		val, ins, err := i.fieldType.CompareIndexed(inst[0].action, inst[0].param)
+		if err != nil {
+			errs = append(errs, err)
 		}
-		if i.center.ins != "" {
-			index = i.center.val
-		} else if i.left.ins != "" && i.right.ins == "" {
-			index = i.left.val
-		} else if i.left.ins != "" && i.right.ins != "" {
-			index = i.left.val
-		} else if i.left.ins == "" && i.right.ins != "" {
-			index = i.right.val
+		index = val
+		switch ins {
+		case "==":
+			i.center.ins = ins
+			i.center.val = val
+		case "<=":
+			i.left.ins = ins
+			i.left.val = val
 			i.reverse = true
+		case "<":
+			i.left.ins = ins
+			i.left.val = val
+			i.reverse = true
+		case ">=":
+			i.right.ins = ins
+			i.right.val = val
+		case ">":
+			i.right.ins = ins
+			i.right.val = val
+		case "prefix":
+			i.center.ins = ins
+			i.center.val = val
 		}
+		i.query = inst[1:]
+
 		i.prefix = db.Options.DBName + db.KV.D + obj + db.KV.D + field + db.KV.D + index
+		i.prefix2 = db.Options.DBName + db.KV.D + obj + db.KV.D + field
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
@@ -335,70 +333,71 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 		i.notFirst = true
 	}
 	for notValid {
-		if !i.iterator.Valid() {
-			return r, false, nil
-		}
+
 		item := i.iterator.Item()
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.db.KV.D))
-		//log.Print(i)
+
 		if i.indexed {
+
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
-			if string(kArray[2]) != i.field {
+			if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 				i.iterator.Next()
-				if !i.iterator.Valid() {
-					return r, false, nil
-				}
 				item = i.iterator.Item()
 				k = item.KeyCopy(k)
 				kArray = bytes.Split(k, []byte(i.db.KV.D))
-				if string(kArray[2]) != i.field {
+				if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 					return r, false, nil
 				}
 
 			}
-			passed := 0
+
+			failed := false
+			//check indexed indexed instruction
 			if i.center.ins != "" {
-				if i.iterator.ValidForPrefix([]byte(i.prefix)) {
-					passed++
-				} else {
-					return r, false, nil
+				isValid := false
+				if i.center.ins == "==" {
+					isValid = bytes.Equal(kArray[3], []byte(i.center.val))
+				} else if i.center.ins == "prefix" {
+					isValid = bytes.HasPrefix(kArray[3], []byte(i.center.val))
 				}
-			} else {
-				passed++
-			}
-
-			if i.left.ins != "" {
+				if !isValid {
+					failed = true
+				}
+			} else if i.left.ins != "" {
 				d := bytes.Compare(kArray[3], []byte(i.left.val))
-				if d == -1 && i.reverse {
-					return r, false, nil
+				if i.left.ins == "<" && d != -1 {
+					failed = true
 				}
-				if i.left.ins == ">" && d == 1 {
-					passed++
+				if i.left.ins == "<=" && d > 0 {
+					failed = true
 				}
-				if i.left.ins == ">=" && (d == 1 || d == 0) {
-					passed++
+			} else if i.right.ins != "" {
+				d := bytes.Compare(kArray[3], []byte(i.left.val))
+				if i.right.ins == ">" && d != 1 {
+					failed = true
 				}
-			} else {
-				passed++
+				if i.right.ins == ">=" && d < 0 {
+					failed = true
+				}
 			}
 
-			if i.right.ins != "" {
-				d := bytes.Compare(kArray[3], []byte(i.right.val))
-				if d == 1 && !i.reverse {
-					return r, false, nil
+			//check other none indexed instructions
+			for _, ins := range i.query {
+				rawQueryData, err := i.fieldType.Set(ins.param)
+				if err != nil {
+					return nil, false, err
 				}
-				if i.right.ins == "<" && d == -1 {
-					passed++
+				boa, err := i.fieldType.Compare(ins.action, kArray[3], rawQueryData)
+				if err != nil {
+					return nil, false, err
 				}
-				if i.right.ins == "<=" && (d == -1 || d == 0) {
-					passed++
+				if !boa {
+					failed = true
 				}
-			} else {
-				passed++
 			}
 
-			if passed > 2 {
+			if !failed {
 				notValid = false
 				r[KeyValueKey{Main: string(kArray[2])}] = kArray[3]
 				r[KeyValueKey{Main: "ID"}] = kArray[4]
@@ -1460,7 +1459,6 @@ func (g *GetterFactory) Run() {
 		}
 
 	}
-
 }
 func (g *GetterFactory) Close() {
 	for {
@@ -1872,6 +1870,7 @@ type iteratorLoaderGraphStart struct {
 	g         *GetterFactory
 	txn       *badger.Txn
 	prefix    string
+	prefix2   string
 	fieldType FieldType
 	query     []NodeQueryInstruction
 	iterator  *badger.Iterator
@@ -1922,41 +1921,38 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 
 	delete(node.Instructions, field)
 	//i.iterator = txn.NewIterator()
-	if i.indexed {
-		for _, d := range inst {
-			val, ins, err := i.fieldType.CompareIndexed(d.action, d.param)
-			if err != nil {
-				errs = append(errs, err)
-			}
-			switch ins {
-			case "==":
-				i.center.ins = ins
-				i.center.val = val
-			case ">=":
-				i.left.ins = ins
-				i.left.val = val
-			case ">":
-				i.left.ins = ins
-				i.left.val = val
-			case "<=":
-				i.right.ins = ins
-				i.right.val = val
-			case "<":
-				i.right.ins = ins
-				i.right.val = val
-			}
+	if i.indexed && len(inst) > 0 {
+		val, ins, err := i.fieldType.CompareIndexed(inst[0].action, inst[0].param)
+		if err != nil {
+			errs = append(errs, err)
 		}
-		if i.center.ins != "" {
-			index = i.center.val
-		} else if i.left.ins != "" && i.right.ins == "" {
-			index = i.left.val
-		} else if i.left.ins != "" && i.right.ins != "" {
-			index = i.left.val
-		} else if i.left.ins == "" && i.right.ins != "" {
-			index = i.right.val
+		index = val
+		switch ins {
+		case "==":
+			i.center.ins = ins
+			i.center.val = val
+		case "<=":
+			i.left.ins = ins
+			i.left.val = val
 			i.reverse = true
+		case "<":
+			i.left.ins = ins
+			i.left.val = val
+			i.reverse = true
+		case ">=":
+			i.right.ins = ins
+			i.right.val = val
+		case ">":
+			i.right.ins = ins
+			i.right.val = val
+		case "prefix":
+			i.center.ins = ins
+			i.center.val = val
 		}
+		i.query = inst[1:]
+
 		i.prefix = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + field + g.DB.KV.D + index
+		i.prefix2 = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + field
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
@@ -1987,73 +1983,76 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 	notValid := true
 
 	for notValid {
-		if !i.iterator.Valid() {
-			return r, false, nil
-		}
+
 		item := i.iterator.Item()
 		k = item.KeyCopy(k)
 		kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
 		if i.indexed {
 			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
-			if string(kArray[2]) != i.field {
+			if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 				i.iterator.Next()
-				if !i.iterator.Valid() {
-					return r, false, nil
-				}
 				item = i.iterator.Item()
 				k = item.KeyCopy(k)
 				kArray = bytes.Split(k, []byte(i.g.DB.KV.D))
-				if string(kArray[2]) != i.field {
+				if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 					return r, false, nil
 				}
 
 			}
-			passed := 0
+
+			failed := false
+			//check indexed indexed instruction
 			if i.center.ins != "" {
-				if i.iterator.ValidForPrefix([]byte(i.prefix)) {
-					passed++
-				} else {
-					return r, false, nil
+				isValid := false
+				if i.center.ins == "==" {
+					isValid = bytes.Equal(kArray[3], []byte(i.center.val))
+				} else if i.center.ins == "prefix" {
+					isValid = bytes.HasPrefix(kArray[3], []byte(i.center.val))
 				}
-			} else {
-				passed++
-			}
-
-			if i.left.ins != "" {
+				if !isValid {
+					failed = true
+				}
+			} else if i.left.ins != "" {
 				d := bytes.Compare(kArray[3], []byte(i.left.val))
-				if d == -1 && i.reverse {
-					return r, false, nil
+				if i.left.ins == "<" && d != -1 {
+					failed = true
 				}
-				if i.left.ins == ">" && d == 1 {
-					passed++
+				if i.left.ins == "<=" && d > 0 {
+					failed = true
 				}
-				if i.left.ins == ">=" && (d == 1 || d == 0) {
-					passed++
+			} else if i.right.ins != "" {
+				d := bytes.Compare(kArray[3], []byte(i.left.val))
+				if i.right.ins == ">" && d != 1 {
+					failed = true
 				}
-			} else {
-				passed++
+				if i.right.ins == ">=" && d < 0 {
+					failed = true
+				}
 			}
 
-			if i.right.ins != "" {
-				d := bytes.Compare(kArray[3], []byte(i.right.val))
-				if d == 1 && !i.reverse {
-					return r, false, nil
+			//check other none indexed instructions
+			for _, ins := range i.query {
+				rawQueryData, err := i.fieldType.Set(ins.param)
+				if err != nil {
+					return nil, false, err
 				}
-				if i.right.ins == "<" && d == -1 {
-					passed++
+				boa, err := i.fieldType.Compare(ins.action, kArray[3], rawQueryData)
+				if err != nil {
+					return nil, false, err
 				}
-				if i.right.ins == "<=" && (d == -1 || d == 0) {
-					passed++
+				if !boa {
+					failed = true
 				}
-			} else {
-				passed++
 			}
 
-			if passed > 2 {
+			if !failed {
 				notValid = false
 				r[KeyValueKey{Main: string(kArray[2])}] = kArray[3]
 				r[KeyValueKey{Main: "ID"}] = kArray[4]
+			} else {
+				i.iterator.Next()
 			}
+
 		} else if !i.indexed && i.field == "" {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
 				return r, false, nil

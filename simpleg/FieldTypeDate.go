@@ -37,7 +37,7 @@ func (f *FieldTypeDate) New() interface{} {
 func (f *FieldTypeDate) Set(v interface{}) ([]byte, error) {
 	d, ok := v.(time.Time)
 	if !ok {
-		return nil, errors.New("Provided interface is not of type Time")
+		return nil, errors.New("provided interface is not of type time.Time")
 	}
 	t, err := d.MarshalText()
 	return t, err
@@ -88,11 +88,11 @@ func (f *FieldTypeDate) CompareIndexed(typ string, a interface{}) (string, strin
 	var err error
 	t, ok := a.(time.Time)
 	if !ok {
-		return "", "", errors.New("Provided parameter is not of the type time.Time")
+		return "", "", errors.New("provided parameter is not of the type time.Time")
 	}
 	b, err := t.MarshalText()
 	if err != nil {
-		return "", "", errors.New("Provided parameter cant be converted to string in Fieldtype date")
+		return "", "", errors.New("provided parameter cant be converted to string in Fieldtype date")
 	}
 	s := string(b)
 	switch typ {

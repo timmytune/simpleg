@@ -42,18 +42,25 @@ func (f *FieldTypeUint64) Set(v interface{}) ([]byte, error) {
 	}
 	var buf []byte
 	buf = strconv.AppendUint(buf, d, 10)
-	return buf, nil
+	l := len(buf)
+	var buf2 []byte
+	buf2 = []byte(strconv.FormatUint(uint64(l), 32))
+	buf2 = append(buf2, buf...)
+	return buf2, nil
 }
 
 func (f *FieldTypeUint64) Get(v []byte) (interface{}, error) {
-	i, _ := strconv.ParseUint(string(v), 10, 64)
+	vv := v[1:]
+	i, _ := strconv.ParseUint(string(vv), 10, 64)
 	return i, nil
 }
 
 func (f *FieldTypeUint64) Compare(typ string, a []byte, b []byte) (bool, error) {
 	var err error
-	ia, _ := strconv.ParseUint(string(a), 10, 64)
-	ib, _ := strconv.ParseUint(string(b), 10, 64)
+	av := a[1:]
+	ia, _ := strconv.ParseUint(string(av), 10, 64)
+	bv := b[1:]
+	ib, _ := strconv.ParseUint(string(bv), 10, 64)
 
 	switch typ {
 	case "==":

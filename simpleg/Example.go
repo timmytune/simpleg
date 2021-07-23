@@ -34,6 +34,7 @@ type User struct {
 	email      string
 	active     bool
 	age        int64
+	date       time.Time
 	activities FieldTypeArrayValue
 }
 
@@ -178,7 +179,7 @@ func GetUserOption() ObjectTypeOptions {
 			}
 			u.ID = f.(uint64)
 		} else {
-			e = append(e, errors.New("The Data from the DB has no ID"))
+			e = append(e, errors.New("the Data from the DB has no ID"))
 			return nil, e
 		}
 		if f, ok := m[KeyValueKey{Main: "firstName"}]; ok {
@@ -211,6 +212,14 @@ func GetUserOption() ObjectTypeOptions {
 				e = append(e, err)
 			} else {
 				u.active = v.(bool)
+			}
+		}
+		if f, ok := m[KeyValueKey{Main: "date"}]; ok {
+			v, err := db.FT["date"].Get(f)
+			if err != nil {
+				e = append(e, err)
+			} else {
+				u.date = v.(time.Time)
 			}
 		}
 		if f, ok := m[KeyValueKey{Main: "age"}]; ok {
@@ -257,6 +266,9 @@ func GetUserOption() ObjectTypeOptions {
 			u[KeyValueKey{Main: "email"}], _ = db.FT["string"].Set(d.email)
 		}
 		u[KeyValueKey{Main: "active"}], _ = db.FT["bool"].Set(d.active)
+		if !d.date.IsZero() {
+			u[KeyValueKey{Main: "date"}], _ = db.FT["date"].Set(d.date)
+		}
 		if d.age > int64(0) {
 			u[KeyValueKey{Main: "age"}], _ = db.FT["int64"].Set(d.age)
 		}
@@ -264,21 +276,6 @@ func GetUserOption() ObjectTypeOptions {
 	}
 	uo.Validate = func(i interface{}, db *DB) (interface{}, []error) {
 		e := make([]error, 0)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in Validate User", r)
-				switch x := r.(type) {
-				case string:
-					err := errors.New(x)
-					e = append(e, err)
-				case error:
-					err := x
-					e = append(e, err)
-				default:
-					e = append(e, errors.New("unknown panic"))
-				}
-			}
-		}()
 		db.RLock()
 		defer db.RUnlock()
 		d := i.(User)
@@ -316,6 +313,7 @@ func GetUserOption() ObjectTypeOptions {
 	uo.Fields["email"] = FieldOptions{Indexed: true, Advanced: false, FieldType: "string", Validate: fv.Email("email", true)}
 	uo.Fields["active"] = FieldOptions{Indexed: false, Advanced: false, FieldType: "bool", Validate: nil}
 	uo.Fields["age"] = FieldOptions{Indexed: false, FieldType: "int64", Validate: fv.Int64("age", 10, 28)}
+	uo.Fields["date"] = FieldOptions{Indexed: true, FieldType: "date"}
 	arrayOptions := ArrayOptions{}
 	arrayOptions.New = func() interface{} {
 		ret := Activities{}

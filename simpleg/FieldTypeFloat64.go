@@ -27,7 +27,7 @@ type FieldTypeFloat64 struct {
 func (f *FieldTypeFloat64) GetOption() map[string]string {
 	m := make(map[string]string)
 	m["Name"] = "Float64"
-	m["AllowIndexing"] = "1"
+	m["AllowIndexing"] = "0"
 	return m
 }
 

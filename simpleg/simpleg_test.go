@@ -55,6 +55,7 @@ func TestAll(t *testing.T) {
 	var wg sync.WaitGroup
 	start := time.Now()
 	for i := 0; i < 9; i++ {
+		time.Sleep(500 * time.Millisecond)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -66,6 +67,7 @@ func TestAll(t *testing.T) {
 			u.firstName = "Yinka"
 			u.lastName = "Adedoyin"
 			u.email = "timmytune002@gmail.com"
+			u.date = time.Now()
 			u.age = int64(19)
 			re := db.Set("save.object", "User", u)
 			if len(re.Errors) != 0 {
@@ -710,14 +712,14 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Get Failed Test get Friend:", retQuery)
 	} else {
 		//log.Print("---- 8888.1 ---- ", retQuery.Data)
-		log.Print("---- 8888.1 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
-		log.Print("---- 8888.2 ---- ", len(retQuery.Data.(map[string]interface{})["link"].([]interface{})))
-		log.Print("---- 8888.3 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
-		log.Print("---- 8888.4 ---- ", len(retQuery.Data.(map[string]interface{})["last"].([]interface{})))
+		log.Print("---- 8888.5 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
+		log.Print("---- 8888.6 ---- ", len(retQuery.Data.(map[string]interface{})["link"].([]interface{})))
+		log.Print("---- 8888.7 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
+		log.Print("---- 8888.8 ---- ", len(retQuery.Data.(map[string]interface{})["last"].([]interface{})))
 	}
 
 	startUser = NodeQuery{}
-	startUser.Object("User").Q("age", ">", int64(17)).Name("first")
+	startUser.Object("User").Q("date", "<", time.Now()).Name("first")
 
 	friends = NodeQuery{}
 	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)
@@ -726,7 +728,7 @@ func TestAll(t *testing.T) {
 	mutual.Object("User").Name("mutual")
 
 	friends2 = NodeQuery{}
-	friends2.Link("Friend", "->")
+	friends2.Link("Friend", "<-")
 
 	endUser = NodeQuery{}
 	endUser.Object("User").Q("ID", "==", uint64(10)).Limit(100).Name("last")
@@ -921,13 +923,13 @@ func TestAll(t *testing.T) {
 	u2.Name("u2").Object("User").Q("ID", "==", uint64(5))
 
 	friends = NodeQuery{}
-	friends.Link("Friend", "->").Name("link").Limit(100) //.Skip(10)
+	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)
 
 	mutual = NodeQuery{}
 	mutual.Object("User").Name("mutual")
 
 	friends2 = NodeQuery{}
-	friends2.Link("Friend", "<-").Name("link2")
+	friends2.Link("Friend", "-").Name("link2")
 
 	endUser = NodeQuery{}
 	endUser.Object("User").Q("activities", "count-g", 2).Limit(100).Name("last")
@@ -995,6 +997,46 @@ func TestAll(t *testing.T) {
 
 		Log.Print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", m["emb2"])
 		Log.Print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", m["users1"])
+	}
+
+	// prefix := []byte(db.Options.DBName + db.KV.D + "User" + db.KV.D + "date")
+	// opt := badger.DefaultIteratorOptions
+	// opt.Prefix = prefix
+	// opt.PrefetchSize = 20
+	// opt.PrefetchValues = false
+	// txn := db.KV.DB.NewTransaction(false)
+	// defer txn.Discard()
+	// iterator := txn.NewIterator(opt)
+	// //defer iterator.Close()
+	// brk := false
+
+	// iterator.Seek(prefix)
+	// for !brk {
+	// 	if !iterator.ValidForPrefix(prefix) {
+	// 		iterator.Close()
+	// 		break
+	// 	}
+	// 	item := iterator.Item()
+	// 	var key []byte
+	// 	key = item.KeyCopy(key)
+	// 	kArray := bytes.Split(key, []byte(db.KV.D))
+	// 	//f, _ := binary.Uvarint(kArray[3])
+	// 	//t, _ := binary.Uvarint(kArray[4])
+	// 	//log.Printf("%s %s %s %s", string(kArray[1]), string(kArray[2]), strconv.Itoa(int(f)), strconv.Itoa(int(t)))
+	// 	log.Print(string(key), string(kArray[4]))
+	// 	iterator.Next()
+	// }
+
+	q = db.Query()
+	n = NodeQuery{}
+	n.Name("da").Object("User").Q("date", "<", time.Now()).Limit(100)
+	//n.Name("da").Object("User").Q("firstName", "prefix", "yin").Limit(100)
+	q.Do("object", n)
+	retGet = q.Return("array", "da")
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
+	} else {
+		log.Print("---- date ---- ", len(retGet.Data.([]interface{})))
 	}
 
 }

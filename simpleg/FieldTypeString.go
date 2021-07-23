@@ -38,7 +38,7 @@ func (f *FieldTypeString) New() interface{} {
 func (f *FieldTypeString) Set(v interface{}) ([]byte, error) {
 	d, ok := v.(string)
 	if !ok {
-		return nil, errors.New("Interface is not the type of string")
+		return nil, errors.New("interface is not the type of string")
 	}
 	return []byte(d), nil
 }
@@ -80,6 +80,8 @@ func (f *FieldTypeString) CompareIndexed(typ string, a interface{}) (string, str
 	b, _ := a.(string)
 	switch typ {
 	case "prefix":
+		return b, "perfix", err
+	case "==":
 		return b, "==", err
 	default:
 		return "", "", errors.New("fieldtype string does not support this comparison operator for indexed field")
