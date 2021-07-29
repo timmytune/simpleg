@@ -3286,14 +3286,6 @@ func GetterGraphPartern(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 			}
 		}
 	}()
-	for i := range hold {
-		if hold[i].first != nil {
-			hold[i].first.close()
-		}
-		if hold[i].link != nil {
-			hold[i].link.close()
-		}
-	}
 
 	for i, v := range qData {
 		n, ok := v.(NodeQuery)
@@ -3553,22 +3545,22 @@ func GetterGraphPartern(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 					if !hold[i].sentCurrentToArray {
 						if hold[i].query.Direction == "" && hold[i].query.saveName != "" { // it is an object query and saved
 							if hold[i].query.skip > hold[i].skiped {
-								hold[i].skiped++
+								hold[i].skiped = hold[i].skiped + 1
 							} else {
 								hold[i].dataObject[string(hold[i].currentObject[KeyValueKey{Main: "ID"}])] = hold[i].currentObject
 								hold[i].sentCurrentToArray = true
-								hold[i].count++
+								hold[i].count = hold[i].count + 1
 							}
 							if hold[i].count >= hold[i].query.limit {
 								do = false
 							}
 						} else if hold[i].query.Direction != "" && hold[i].query.saveName != "" { // it is a link query and saved
 							if hold[i].query.skip > hold[i].skiped {
-								hold[i].skiped++
+								hold[i].skiped = hold[i].skiped + 1
 							} else {
 								hold[i].dataObject[string(hold[i].currentObject[KeyValueKey{Main: "FROM"}])+string(hold[i].currentObject[KeyValueKey{Main: "TO"}])] = hold[i].currentObject
 								hold[i].sentCurrentToArray = true
-								hold[i].count++
+								hold[i].count = hold[i].count + 1
 							}
 							if hold[i].count >= hold[i].query.limit {
 								do = false
@@ -4295,7 +4287,10 @@ func GetterGraphStraight(g *GetterFactory, txn *badger.Txn, data *map[string]int
 					}
 				}
 
-				position = 2
+				if position != -1 {
+					position = 2
+				}
+
 				down = false
 
 			} else {
@@ -4660,7 +4655,9 @@ func GetterGraphStraightObjectStart(g *GetterFactory, txn *badger.Txn, data *map
 					}
 				}
 
-				position = 2
+				if position != -1 {
+					position = 2
+				}
 				down = false
 
 			} else {

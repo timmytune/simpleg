@@ -702,7 +702,7 @@ func TestAll(t *testing.T) {
 	friends2.Link("Friend", "-")
 
 	endUser := NodeQuery{}
-	endUser.Object("User").Q("ID", "==", uint64(10)).Limit(100).Name("last")
+	endUser.Object("User").Limit(5).Name("last") //.Q("ID", "==", uint64(10))
 
 	query := db.Query()
 	query.Do("graph.p", startUser, friends, mutual, friends2, endUser)
@@ -748,7 +748,7 @@ func TestAll(t *testing.T) {
 	}
 
 	startUser = NodeQuery{}
-	startUser.Object("User").Q("age", ">", int64(17)).Name("first")
+	startUser.Object("User").Q("age", ">", int64(17)).Name("first").Limit(5)
 
 	friends = NodeQuery{}
 	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)
