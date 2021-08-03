@@ -17,9 +17,13 @@ package simpleg
 
 import (
 	"errors"
+	"io/ioutil"
 	"os"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	badger "github.com/dgraph-io/badger/v3"
 	"github.com/rs/zerolog"
@@ -125,6 +129,7 @@ type LinkTypeOptions struct {
 
 type Options struct {
 	DBName                 string
+	BackupDir              string
 	DBDelimiter            string
 	KVWriterGoroutineCount int
 	KVWriterChannelLength  int
@@ -334,7 +339,6 @@ func (db *DB) Start() error {
 	db.Getter.Start(db, db.Options.GetterGoroutineCount, db.Options.GetterChannelLength)
 	Log.Info().Msg("Database started")
 	return err
-
 }
 
 func (db *DB) Close() error {
@@ -397,6 +401,122 @@ func (db *DB) AddLinkType(l LinkTypeOptions) error {
 	}
 	db.LT[l.Name] = l
 	return err
+}
+
+func (db *DB) Backup() (e error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			Log.Error().Interface("recovered", r).Stack().Str("stack", string(debug.Stack())).Msg("Recovered in DB.Backup")
+
+			switch x := r.(type) {
+			case string:
+				e = errors.New(x)
+			case error:
+				e = x
+			default:
+				e = errors.New("Unknown error was thrown")
+			}
+		}
+	}()
+
+	if _, err := os.Stat(db.Options.BackupDir + "/creating"); err == nil {
+		err = os.Remove(db.Options.BackupDir + "/creating")
+		if err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	index := uint64(0)
+
+	files, err := ioutil.ReadDir(db.Options.BackupDir)
+	if err != nil {
+		return err
+	}
+
+	if len(files) != 0 {
+		file := files[len(files)-1]
+		name := file.Name()
+		sts := strings.Split(name, "_")
+		if len(sts) != 3 {
+			return errors.New("invalid filename for the last file in backup folder")
+		}
+
+		index, err = strconv.ParseUint(sts[2], 10, 64)
+		if err != nil {
+			return err
+		}
+		index = index + 1
+	}
+
+	f, err := os.OpenFile(db.Options.BackupDir+"/creating", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	newIndex, err := db.KV.DB.Backup(f, index)
+	if err != nil {
+		return err
+	}
+	now := strconv.FormatInt(int64(time.Now().Unix()), 32)
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+	err = os.Rename(db.Options.BackupDir+"/creating", db.Options.BackupDir+"/"+now+"_"+strconv.FormatUint(index, 10)+"_"+strconv.FormatUint(newIndex, 10))
+	if err != nil {
+		return err
+	}
+	return
+}
+
+func (db *DB) Restore(from string) (e error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			Log.Error().Interface("recovered", r).Stack().Str("stack", string(debug.Stack())).Msg("Recovered in DB.Restore")
+
+			switch x := r.(type) {
+			case string:
+				e = errors.New(x)
+			case error:
+				e = x
+			default:
+				e = errors.New("Unknown error was thrown")
+			}
+		}
+	}()
+
+	files, err := ioutil.ReadDir(db.Options.BackupDir)
+	if err != nil {
+		return err
+	}
+
+	run := false
+	if from == "" {
+		run = true
+	}
+
+	for _, file := range files {
+		if file.Name() == from || run {
+			run = true
+			f, err := os.OpenFile(db.Options.BackupDir+"/"+file.Name(), os.O_RDONLY, 0666)
+
+			if err != nil {
+				return err
+			}
+			err = db.KV.DB.Load(f, 100)
+			if err != nil {
+				return err
+			}
+			f.Close()
+		}
+	}
+
+	return
 }
 
 func GetNewDB() *DB {

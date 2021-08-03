@@ -1039,4 +1039,16 @@ func TestAll(t *testing.T) {
 		log.Print("---- date ---- ", len(retGet.Data.([]interface{})))
 	}
 
+	err := db.Backup()
+	if err != nil {
+		log.Print("---- backup error ---- ", err)
+		t.Error("simpleg.Backup:", err)
+	}
+
+	err = db.Restore("1ggirod_5966_6316")
+	if err != nil {
+		log.Print("---- restore error ---- ", err)
+		t.Error("simpleg.Restore:", err)
+	}
+
 }

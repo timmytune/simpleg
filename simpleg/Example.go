@@ -840,6 +840,7 @@ func GetLikeLinkOption() LinkTypeOptions {
 
 func InitDB() *DB {
 	opt := DefaultOptions("/data/simpleg")
+	opt.BackupDir = "/data/backup"
 	db := GetNewDB()
 	err := db.Init(opt)
 	if err != nil {
