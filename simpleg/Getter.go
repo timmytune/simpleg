@@ -1418,7 +1418,27 @@ func (g *GetterFactory) Run() {
 				close(job.Ret)
 			}
 			if txn != nil {
-				txn.Discard()
+				func() {
+					defer func() {
+						r := recover()
+						if r != nil {
+							ret := GetterRet{}
+							Log.Error().Interface("recovered", r).Stack().Interface("stack", string(debug.Stack())).Msg("Recovered in Getter.Run.recover.recover ")
+							if ret.Errors == nil {
+								ret.Errors = make([]error, 0)
+							}
+							switch x := r.(type) {
+							case string:
+								ret.Errors = append(ret.Errors, errors.New(x))
+							case error:
+								ret.Errors = append(ret.Errors, x)
+							default:
+								ret.Errors = append(ret.Errors, errors.New("unknown error was thrown"))
+							}
+						}
+					}()
+					txn.Discard()
+				}()
 				txn = nil
 			}
 			g.Run()
@@ -4874,6 +4894,7 @@ func getObjectsForSingleObject(g *GetterFactory, txn *badger.Txn, fromName strin
 //params... NodeQuery (NodeQuery)
 //placesses objectLists found in  node query [0] in variable [1]
 func GetterGraphEmbeded(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+
 	if len(qData) != 5 && len(qData) != 7 {
 		ret.Errors = append(ret.Errors, errors.New("invalid number of arguments provided in embeded expected 5 or 7 "))
 		return
