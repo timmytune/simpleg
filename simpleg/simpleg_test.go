@@ -748,7 +748,7 @@ func TestAll(t *testing.T) {
 	}
 
 	startUser = NodeQuery{}
-	startUser.Object("User").Q("age", ">", int64(17)).Name("first").Limit(5)
+	startUser.Object("User").Q("age", ">", int64(17)).Name("first").Limit(5).Order("ID", "dsc")
 
 	friends = NodeQuery{}
 	friends.Link("Friend", "-").Name("link").Limit(100) //.Skip(10)

@@ -310,6 +310,7 @@ func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQuer
 		opt.PrefetchValues = false
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
+		opt.Reverse = i.reverse
 		i.iterator = txn.NewIterator(opt)
 		i.query = inst
 	}
@@ -856,6 +857,9 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 		}
 	}
 	iterator := iteratorLoader{}
+	if node.Sort == "ID" && !node.SortType {
+		iterator.reverse = true
+	}
 	errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn)
 	defer iterator.close()
 	delete(node.Instructions, node.index)
@@ -2003,6 +2007,9 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 		opt.PrefetchValues = false
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
+		if node.Sort == "ID" && !node.SortType {
+			opt.Reverse = true
+		}
 		i.iterator = txn.NewIterator(opt)
 		i.query = inst
 	}
