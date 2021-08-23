@@ -612,6 +612,7 @@ func (g *GetterFactory) getObjectMapArray(o *ObjectList) ([]map[string]interface
 	}
 	ret := make([]map[string]interface{}, 0)
 	g.DB.RLock()
+	defer g.DB.RUnlock()
 	ot, ok := g.DB.OT[o.ObjectName]
 	if !ok {
 		errs = append(errs, errors.New("can't find object of name "+o.ObjectName))
@@ -663,9 +664,11 @@ func (g *GetterFactory) getObjectMapArray(o *ObjectList) ([]map[string]interface
 
 			} else {
 				for _, v := range fields {
-					if rd, ok := val[KeyValueKey{Main: v}]; ok {
+					if rd, ok := val[KeyValueKey{Main: v}]; ok && v != "ID" {
 						ft := ot.Fields[v].FieldType
-						if ft != "date" {
+						if ft == "" {
+
+						} else if ft != "date" {
 							va[v], err = g.DB.FT[ft].Get(rd)
 						} else {
 							va[v] = string(rd)
@@ -685,7 +688,7 @@ func (g *GetterFactory) getObjectMapArray(o *ObjectList) ([]map[string]interface
 		ret = append(ret, va)
 
 	}
-	g.DB.RUnlock()
+
 	return ret, errs
 }
 func (g *GetterFactory) getLinkArray(o *LinkList) ([]interface{}, []error) {
@@ -1451,7 +1454,7 @@ func (g *GetterFactory) Run() {
 		ret.Errors = make([]error, 0)
 		data = make(map[string]interface{})
 		if txn != nil {
-			txn.Commit()
+			txn.Discard()
 		}
 		txn = g.DB.KV.DB.NewTransaction(false)
 		for _, val := range job.Instructions {
@@ -1560,7 +1563,7 @@ func MergeObjectList(g *GetterFactory, txn *badger.Txn, data *map[string]interfa
 		return
 	}
 	if d1.ObjectName != d2.ObjectName {
-		ret.Errors = append(ret.Errors, errors.New("provided objects to nerge are not the same in mergeobjectlist"))
+		ret.Errors = append(ret.Errors, errors.New("provided objects to merge are not the same in mergeobjectlist"))
 		return
 	}
 
@@ -3648,11 +3651,6 @@ func GetterGraphParternObjectStart(g *GetterFactory, txn *badger.Txn, data *map[
 			}
 		}
 	}()
-	for i := range hold {
-		if hold[i].link != nil {
-			hold[i].link.close()
-		}
-	}
 
 	for i, v := range qData {
 		var n NodeQuery
@@ -4753,7 +4751,11 @@ func getObjectsForSingleObject(g *GetterFactory, txn *badger.Txn, fromName strin
 	objecth.object = &iteratorLoaderGraphObject{objectq, g, txn, false}
 	m2 := make(map[string]map[KeyValueKey][]byte)
 	objecth.dataObject = m2
-
+	defer func() {
+		if linkh.link != nil && linkh.link.iterator != nil {
+			linkh.link.iterator.Close()
+		}
+	}()
 	do := true
 	position := 1
 	down := true
