@@ -113,7 +113,6 @@ func (s *KV) setWriteTransaction() {
 			(*Log).Print("Recovered in set write Transaction from error")
 			s.setWriteTransaction()
 		}
-
 	}()
 
 	for {

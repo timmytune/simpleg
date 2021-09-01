@@ -114,7 +114,7 @@ func (s *SetterFactory) object(typ string, o interface{}) (uint64, []error) {
 	_, ok = m[KeyValueKey{Main: "ID"}]
 	if !ok {
 		var ee error
-		i, ee = s.DB.KV.GetNextID(typ, 100)
+		i, ee = s.DB.KV.GetNextID(typ, 10)
 		if ee != nil {
 			return i, append(e, ee)
 		}
