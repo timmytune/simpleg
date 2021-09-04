@@ -1051,4 +1051,17 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Restore:", err)
 	}
 
+	q = db.Query()
+	q.Do("internal.instruction", "update-index", "User", "email")
+	retGet = q.Return("skip")
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test Update index:", retGet.Errors)
+	}
+
+	q = db.Query()
+	q.Do("internal.instruction", "delete-index", "User", "email")
+	retGet = q.Return("skip")
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test Update index:", retGet.Errors)
+	}
 }

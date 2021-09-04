@@ -1487,6 +1487,8 @@ func (g *GetterFactory) Run() {
 				GetterGraphStraightObjectStart(g, txn, &data, &job, val.Params, &ret)
 			case "embeded":
 				GetterGraphEmbeded(g, txn, &data, &job, val.Params, &ret)
+			case "internal.instruction":
+				InternalInstruction(g, txn, &data, &job, val.Params, &ret)
 			default:
 				g.DB.RLock()
 				f, ok := g.DB.GF[val.Action]
@@ -5000,5 +5002,103 @@ func GetterGraphEmbeded(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 	//log.Print("ooooo", retData)
 
 	(*data)[saveName] = retData
+
+}
+
+func InternalInstruction(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+	defer func() {
+		q.Ret <- *ret
+	}()
+	if len(qData) < 1 {
+		ret.Errors = append(ret.Errors, errors.New("less than 1 arguments given in Internal instruction"))
+		return
+	}
+	one, ok := qData[0].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid first argument provided in mergeobjectlist"))
+		return
+	}
+
+	switch one {
+	case "update-index":
+		if len(qData) < 3 {
+			ret.Errors = append(ret.Errors, errors.New("less than 3 arguments given in update-index  Internal instruction"))
+			return
+		}
+		object, ok := qData[1].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("invalid 2 argument provided in internal instruction"))
+			return
+		}
+		field, ok := qData[2].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("invalid 3 argument provided in internal instruction"))
+			return
+		}
+		last, err := g.DB.KV.GetNextID(object, 10)
+		g.DB.RLock()
+		defer g.DB.RUnlock()
+		if err != nil {
+			ret.Errors = append(ret.Errors, errors.New("unable to get next sequence for object"))
+			return
+		}
+		for i := uint64(1); i < last; i++ {
+			inRaw, _ := g.DB.FT["uint64"].Set(i)
+			key := g.DB.Options.DBName + g.DB.Options.DBDelimiter + object + g.DB.Options.DBDelimiter + string(inRaw) + g.DB.Options.DBDelimiter + field
+			item, err := txn.Get([]byte(key))
+			if err == nil {
+				value, err := item.ValueCopy(nil)
+				if err == nil {
+					g.DB.KV.Writer2.Write(value, g.DB.Options.DBName, object, field, string(value), string(inRaw))
+				} else {
+					ret.Errors = append(ret.Errors, errors.New("error getting value for key: "+key), err)
+				}
+			} else if err != badger.ErrKeyNotFound {
+				ret.Errors = append(ret.Errors, err)
+			}
+		}
+
+	case "delete-index":
+		if len(qData) < 3 {
+			ret.Errors = append(ret.Errors, errors.New("less than 3 arguments given in delete-index  Internal instruction"))
+			return
+		}
+		object, ok := qData[1].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("invalid 2 argument provided in delete-index internal instruction"))
+			return
+		}
+		field, ok := qData[2].(string)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("invalid 3 argument provided in delete-index internal instruction"))
+			return
+		}
+		last, err := g.DB.KV.GetNextID(object, 10)
+		g.DB.RLock()
+		defer g.DB.RUnlock()
+		if err != nil {
+			ret.Errors = append(ret.Errors, errors.New("unable to get next sequence for object"))
+			return
+		}
+		for i := uint64(1); i < last; i++ {
+			inRaw, _ := g.DB.FT["uint64"].Set(i)
+			key := g.DB.Options.DBName + g.DB.Options.DBDelimiter + object + g.DB.Options.DBDelimiter + string(inRaw) + g.DB.Options.DBDelimiter + field
+			item, err := txn.Get([]byte(key))
+			if err == nil {
+				value, err := item.ValueCopy(nil)
+				if err == nil {
+					g.DB.KV.Writer2.Delete(g.DB.Options.DBName, object, field, string(value), string(inRaw))
+				} else {
+					ret.Errors = append(ret.Errors, errors.New("error getting value for key: "+key), err)
+				}
+			} else if err != badger.ErrKeyNotFound {
+				ret.Errors = append(ret.Errors, err)
+			}
+		}
+
+	default:
+		ret.Errors = append(ret.Errors, errors.New("Invalid Instruction provided for internal instructioin: "+one))
+		return
+	}
 
 }
