@@ -375,7 +375,7 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 				if i.center.ins == "==" {
 					isValid = bytes.Equal(kArray[3], []byte(i.center.val))
 				} else if i.center.ins == "prefix" {
-					isValid = bytes.HasPrefix(kArray[3], []byte(i.center.val))
+					isValid = strings.HasPrefix(string(kArray[3]), i.center.val)
 				}
 				if !isValid {
 					failed = true
@@ -2060,7 +2060,7 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				if i.center.ins == "==" {
 					isValid = bytes.Equal(kArray[3], []byte(i.center.val))
 				} else if i.center.ins == "prefix" {
-					isValid = bytes.HasPrefix(kArray[3], []byte(i.center.val))
+					isValid = strings.HasPrefix(string(kArray[3]), i.center.val)
 				}
 				if !isValid {
 					failed = true
