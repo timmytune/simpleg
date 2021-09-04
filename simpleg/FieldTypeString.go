@@ -80,7 +80,7 @@ func (f *FieldTypeString) CompareIndexed(typ string, a interface{}) (string, str
 	b, _ := a.(string)
 	switch typ {
 	case "prefix":
-		return b, "perfix", err
+		return b, "prefix", err
 	case "==":
 		return b, "==", err
 	default:
