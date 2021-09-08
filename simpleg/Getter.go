@@ -2420,6 +2420,9 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
 		opt.PrefetchValues = false
+		if i.iterator != nil {
+			i.iterator.Close()
+		}
 		i.iterator = i.txn.NewIterator(opt)
 		i.iterator.Seek([]byte(i.prefix))
 		for !loaded {
@@ -2597,6 +2600,9 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
 		opt.PrefetchValues = false
+		if i.iterator != nil {
+			i.iterator.Close()
+		}
 		i.iterator = i.txn.NewIterator(opt)
 		i.iterator.Seek([]byte(i.prefix))
 		for !loaded {
@@ -3442,6 +3448,7 @@ func GetterGraphPartern(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 					ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(prevPosition)+", ID: "+string(prevCur)))
 					return
 				}
+
 				obj, link, errs, loaded := hold[position].link.get2(prevCur)
 				if len(errs) > 0 {
 					ret.Errors = append(ret.Errors, errs...)
@@ -3451,15 +3458,9 @@ func GetterGraphPartern(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 					if hold[position].query.saveName == "" {
 						hold[position].currentIDLink = link
 
-						//f, _ := binary.Uvarint(link.FROM)
-						//t, _ := binary.Uvarint(link.TO)
-						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					} else {
 						hold[position].currentObject = obj
 
-						//f, _ := binary.Uvarint(obj[KeyValueKey{Main: "FROM"}])
-						//t, _ := binary.Uvarint(obj[KeyValueKey{Main: "TO"}])
-						//Log.Print(strconv.Itoa(int(f)) + " ____ " + hold[position].link.currentDirection + " ____ " + strconv.Itoa(int(t)))
 					}
 					hold[position].sentCurrentToArray = false
 					position = position + 1
@@ -3797,6 +3798,7 @@ func GetterGraphParternObjectStart(g *GetterFactory, txn *badger.Txn, data *map[
 					ret.Errors = append(ret.Errors, errors.New("Invalid previous id provided from nodequery "+fmt.Sprint(prevPosition)+", ID: "+string(prevCur)))
 					return
 				}
+
 				obj, link, errs, loaded := hold[position].link.get2(prevCur)
 				if len(errs) > 0 {
 					ret.Errors = append(ret.Errors, errs...)
