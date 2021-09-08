@@ -2607,7 +2607,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 				opt.Prefix = []byte(i.prefix)
 				opt.PrefetchSize = 20
 				opt.PrefetchValues = false
-				i.iterator = i.txn.NewIterator(opt)
+				//i.iterator = i.txn.NewIterator(opt)
 				i.iterator.Seek([]byte(i.prefix))
 			}
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "<-" {
@@ -2939,7 +2939,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 				opt.Prefix = []byte(i.prefix)
 				opt.PrefetchSize = 20
 				opt.PrefetchValues = false
-				i.iterator = i.txn.NewIterator(opt)
+				//i.iterator = i.txn.NewIterator(opt)
 				i.iterator.Seek([]byte(i.prefix))
 			}
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) && i.currentDirection == "<-" {
