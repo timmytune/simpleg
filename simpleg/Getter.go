@@ -22,6 +22,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"time"
 
 	badger "github.com/dgraph-io/badger/v3"
 )
@@ -1510,6 +1511,7 @@ func (g *GetterFactory) Close() {
 			break
 		}
 	}
+	time.Sleep(time.Second)
 }
 
 //GetterNewObject ..

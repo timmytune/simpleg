@@ -139,4 +139,5 @@ func (b *BatchWriter) Close() {
 			break
 		}
 	}
+	time.Sleep(time.Second)
 }
