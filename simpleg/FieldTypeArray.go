@@ -799,20 +799,21 @@ func (f *FieldTypeArray) GetMap(txn *badger.Txn, db *DB, params ...interface{}) 
 	defer func() {
 		r := recover()
 		if r != nil {
+			Log.Error().Interface("recovered", r).Stack().Str("stack", string(debug.Stack())).Msg("Recovered in ArrayField.GetMap")
 			switch x := r.(type) {
 			case string:
 				errs = append(errs, errors.New(x))
 			case error:
 				errs = append(errs, x)
 			default:
-				errs = append(errs, errors.New("Unknown error was thrown"))
+				errs = append(errs, errors.New("unknown error was thrown"))
 			}
 			return
 		}
 	}()
 	errs = make([]error, 0)
 	if db.Shotdown {
-		errs = append(errs, errors.New("Database closing..."))
+		errs = append(errs, errors.New("database closing..."))
 		return nil, errs
 	}
 	isObj, ok := params[0].(bool)
