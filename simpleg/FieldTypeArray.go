@@ -1038,10 +1038,9 @@ func (f *FieldTypeArray) GetMap(txn *badger.Txn, db *DB, params ...interface{}) 
 		var kArray [][]byte
 		var v []byte
 		run := true
-		kerrs := 0
 		for run {
 			item, err := getItem(iterator)
-			if kerrs > 2 {
+			if err != nil {
 				break
 			}
 			if err == nil {
@@ -1083,10 +1082,9 @@ func (f *FieldTypeArray) GetMap(txn *badger.Txn, db *DB, params ...interface{}) 
 					delete(data, idd)
 					break
 				}
-			} else {
-				kerrs++
 			}
 			iterator.Next()
+
 		}
 
 		return data, errs
