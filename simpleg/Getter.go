@@ -1136,7 +1136,7 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 
 			opt := badger.DefaultIteratorOptions
 			opt.Prefix = []byte(prefix)
-			opt.PrefetchSize = 20
+			opt.PrefetchSize = 100
 			opt.PrefetchValues = false
 			iterator := txn.NewIterator(opt)
 			defer iterator.Close()
@@ -1212,7 +1212,7 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 	}
 	opt := badger.DefaultIteratorOptions
 	opt.Prefix = prefix
-	opt.PrefetchSize = 20
+	opt.PrefetchSize = 100
 	opt.PrefetchValues = false
 	iterator := txn.NewIterator(opt)
 	defer iterator.Close()
@@ -1488,6 +1488,8 @@ func (g *GetterFactory) Run() {
 				GetterGraphStraightObjectStart(g, txn, &data, &job, val.Params, &ret)
 			case "embeded":
 				GetterGraphEmbeded(g, txn, &data, &job, val.Params, &ret)
+			case "array.embeded":
+				GetterGraphArrayEmbeded(g, txn, &data, &job, val.Params, &ret)
 			case "internal.instruction":
 				InternalInstruction(g, txn, &data, &job, val.Params, &ret)
 			default:
@@ -1505,6 +1507,7 @@ func (g *GetterFactory) Run() {
 
 	}
 }
+
 func (g *GetterFactory) Close() {
 	for {
 		if len(g.Input) == 0 {
@@ -2001,7 +2004,7 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 		i.prefix2 = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + field
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
-		opt.PrefetchSize = 20
+		opt.PrefetchSize = 100
 		opt.Reverse = i.reverse
 		opt.PrefetchValues = false
 		i.iterator = txn.NewIterator(opt)
@@ -2010,7 +2013,7 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 		opt := badger.DefaultIteratorOptions
 		opt.PrefetchValues = false
 		opt.Prefix = []byte(i.prefix)
-		opt.PrefetchSize = 20
+		opt.PrefetchSize = 100
 		if node.Sort == "ID" && !node.SortType {
 			opt.Reverse = true
 		}
@@ -2020,11 +2023,13 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 	i.iterator.Seek([]byte(i.prefix))
 	return errs
 }
+
 func (i *iteratorLoaderGraphStart) close() {
 	if i.iterator != nil {
 		i.iterator.Close()
 	}
 }
+
 func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) {
 	r := make(map[KeyValueKey][]byte)
 	var k []byte
@@ -2175,6 +2180,7 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 
 	return r, true, nil
 }
+
 func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, c bool, e []error) {
 	if i.node.saveName == "" {
 		b = make([]byte, 0)
@@ -2420,7 +2426,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 		}
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
-		opt.PrefetchSize = 20
+		opt.PrefetchSize = 100
 		opt.PrefetchValues = false
 		if i.iterator != nil {
 			i.iterator.Close()
@@ -2600,7 +2606,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 		i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "+" + i.g.DB.KV.D + string(from)
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
-		opt.PrefetchSize = 20
+		opt.PrefetchSize = 100
 		opt.PrefetchValues = false
 		if i.iterator != nil {
 			i.iterator.Close()
@@ -2613,7 +2619,7 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "-" + i.g.DB.KV.D + string(from)
 				opt := badger.DefaultIteratorOptions
 				opt.Prefix = []byte(i.prefix)
-				opt.PrefetchSize = 20
+				opt.PrefetchSize = 100
 				opt.PrefetchValues = false
 				//i.iterator = i.txn.NewIterator(opt)
 				i.iterator.Seek([]byte(i.prefix))
@@ -2945,7 +2951,7 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 				i.prefix = i.g.DB.Options.DBName + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + "-" + i.g.DB.KV.D + string(i.from)
 				opt := badger.DefaultIteratorOptions
 				opt.Prefix = []byte(i.prefix)
-				opt.PrefetchSize = 20
+				opt.PrefetchSize = 100
 				opt.PrefetchValues = false
 				//i.iterator = i.txn.NewIterator(opt)
 				i.iterator.Seek([]byte(i.prefix))
@@ -5104,5 +5110,105 @@ func InternalInstruction(g *GetterFactory, txn *badger.Txn, data *map[string]int
 		ret.Errors = append(ret.Errors, errors.New("Invalid Instruction provided for internal instructioin: "+one))
 		return
 	}
+
+}
+
+func GetterGraphArrayEmbeded(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+
+	if len(qData) != 5 {
+		ret.Errors = append(ret.Errors, errors.New("invalid number of arguments provided in array embeded expected 4 "))
+		return
+	}
+	saveName, ok := qData[0].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid first argument provided in embeded expected string"))
+		return
+	}
+
+	isObject, ok := qData[1].(bool)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid second argument provided in embeded expected bool"))
+		return
+	}
+
+	objectName, ok := qData[2].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid third argument provided in embeded expected string"))
+		return
+	}
+
+	fieldName, ok := qData[3].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid fourth argument provided in embeded expected string"))
+		return
+	}
+
+	query, ok := qData[4].(int)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid fifth argument provided in embeded expected int"))
+		return
+	}
+
+	var retData []map[string]interface{}
+
+	objectList, ok := (*data)[saveName]
+
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("provided saveName is not pointing to any existing data"))
+		return
+	}
+
+	switch x := objectList.(type) {
+	case *ObjectList:
+		var errs []error
+		objectName = x.ObjectName
+		retData, errs = g.getObjectMapArray(x)
+		isObject = true
+		if len(errs) > 0 {
+			ret.Errors = append(ret.Errors, errs...)
+			return
+		}
+	case *LinkList:
+		var errs []error
+		objectName = x.LinkName
+		retData, errs = g.getLinkMapArray(x)
+		isObject = false
+		if len(errs) > 0 {
+			ret.Errors = append(ret.Errors, errs...)
+			return
+		}
+	case []map[string]interface{}:
+		retData = x
+	default:
+		ret.Errors = append(ret.Errors, errors.New("provided object not of type []map[string]interface{} or *ObjectList"))
+		return
+	}
+
+	if len(retData) == 0 {
+		(*data)[saveName] = make([]map[string]interface{}, 0)
+	}
+	g.DB.RLock()
+	aft := g.DB.AFT["array"]
+	g.DB.RUnlock()
+
+	for i, v := range retData {
+		var rett interface{}
+		var errs []error
+		if isObject {
+			id, _ := v["ID"].(uint64)
+			rett, errs = aft.GetMap(txn, g.DB, isObject, objectName, fieldName, "last", id, uint64(0), query)
+		} else {
+			FROM, _ := v["FROM"].(uint64)
+			TO, _ := v["TO"].(uint64)
+			rett, errs = aft.GetMap(txn, g.DB, isObject, objectName, fieldName, "last", FROM, TO, query)
+		}
+		if len(errs) == 0 {
+			retData[i][fieldName] = rett
+		} else {
+			ret.Errors = append(ret.Errors, errs...)
+		}
+	}
+
+	(*data)[saveName] = retData
 
 }

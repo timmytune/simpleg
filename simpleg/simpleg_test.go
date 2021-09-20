@@ -982,6 +982,7 @@ func TestAll(t *testing.T) {
 	query.Do("object", users1)
 	query.Do("object", users4)
 	query.Do("graph.p.o", "users1", isFriend, users2)
+	query.Do("array.embeded", "users1", true, "User", "activities", 10)
 	query.Do("embeded", "emb", "users1", "User", isFriend, users2)
 	query.Do("embeded", "emb2", "users4", "User", isFriend, users2, isFriend2, users1)
 	query.Do("return.map", "map", "users1", "emb2")

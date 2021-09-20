@@ -795,6 +795,306 @@ func (f *FieldTypeArray) Get(txn *badger.Txn, db *DB, params ...interface{}) (v 
 	}
 }
 
+func (f *FieldTypeArray) GetMap(txn *badger.Txn, db *DB, params ...interface{}) (v interface{}, errs []error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			switch x := r.(type) {
+			case string:
+				errs = append(errs, errors.New(x))
+			case error:
+				errs = append(errs, x)
+			default:
+				errs = append(errs, errors.New("Unknown error was thrown"))
+			}
+			return
+		}
+	}()
+	errs = make([]error, 0)
+	if db.Shotdown {
+		errs = append(errs, errors.New("Database closing..."))
+		return nil, errs
+	}
+	isObj, ok := params[0].(bool)
+	if !ok {
+		errs = append(errs, errors.New("FieldArray.Get: First parameter not a bool"))
+		return nil, errs
+	}
+
+	typ, ok := params[1].(string)
+	if !ok {
+		errs = append(errs, errors.New("FieldArray.Get: Second parameter not a string"))
+		return nil, errs
+	}
+
+	field, ok := params[2].(string)
+	if !ok {
+		errs = append(errs, errors.New("FieldArray.Get: Third parameter not a string"))
+		return nil, errs
+	}
+	var ao ArrayOptions
+	t := "o"
+	if isObj {
+		db.RLock()
+		ao, ok = db.OT[typ].Fields[field].FieldTypeOptions[0].(ArrayOptions)
+		db.RUnlock()
+	} else {
+		t = "l"
+		db.RLock()
+		ao, ok = db.LT[typ].Fields[field].FieldTypeOptions[0].(ArrayOptions)
+		db.RUnlock()
+	}
+	if !ok {
+		errs = append(errs, errors.New("FieldArray.Get: Field "+field+" Not found for Object/Link "+typ))
+		return nil, errs
+	}
+
+	ins, ok := params[3].(string)
+	if !ok {
+		errs = append(errs, errors.New("FieldArray.GetMap: Fourth parameter not a string"))
+		return nil, errs
+	}
+
+	switch ins {
+	case "single":
+		index, err := db.FT["uint64"].Set(params[4])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		id, err := db.FT["uint64"].Set(params[5])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		idTO, err := db.FT["uint64"].Set(params[6])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		opt := badger.DefaultIteratorOptions
+		if isObj {
+			opt.Prefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(id) + db.KV.D + field + db.KV.D + string(index))
+		} else {
+			opt.Prefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(id) + "-" + string(idTO) + db.KV.D + field + db.KV.D + string(index))
+		}
+		opt.PrefetchSize = 5
+		opt.PrefetchValues = true
+		iterator := txn.NewIterator(opt)
+		defer iterator.Close()
+		iterator.Seek(opt.Prefix)
+		data := make(map[string]interface{})
+		var k []byte
+		var kArray [][]byte
+		var v []byte
+		for iterator.ValidForPrefix(opt.Prefix) {
+			item := iterator.Item()
+			k = item.KeyCopy(k)
+			kArray = bytes.Split(k, []byte(db.KV.D))
+			v, err = item.ValueCopy(nil)
+			if err == nil {
+				fieldKey := string(kArray[7])
+				fieldKeyType := ao.Fields[fieldKey]
+				db.RLock()
+				ft, ok := db.FT[fieldKeyType]
+				db.RUnlock()
+				if ok {
+					valField, err := ft.Get(v)
+					if err == nil {
+						data[fieldKey] = valField
+					} else {
+						Log.Error().Interface("error", err).Str("key", string(k)).Msg("converting value for key in Badger threw error")
+					}
+				} else {
+					Log.Error().Str("key", string(k)).Msg("unable to get field type in array " + fieldKeyType)
+				}
+			} else {
+				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
+			}
+			iterator.Next()
+		}
+		return data, errs
+	case "list":
+		objectID, err := db.FT["uint64"].Set(params[4])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		objectIDTO, err := db.FT["uint64"].Set(params[5])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		skip, ok := params[6].(int)
+		if !ok {
+			errs = append(errs, errors.New("Sixth parameter is not an int"))
+			return nil, errs
+		}
+		limit, ok := params[7].(int)
+		if !ok {
+			errs = append(errs, errors.New("Seventh parameter is not an int"))
+			return nil, errs
+		}
+		opt := badger.DefaultIteratorOptions
+		if isObj {
+			opt.Prefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(objectID) + db.KV.D + field)
+		} else {
+			opt.Prefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(objectID) + "-" + string(objectIDTO) + db.KV.D + field)
+		}
+		opt.PrefetchSize = 5
+		opt.PrefetchValues = true
+		iterator := txn.NewIterator(opt)
+		defer iterator.Close()
+		iterator.Seek(opt.Prefix)
+		data := make(map[uint64]map[string]interface{})
+		var k []byte
+		var kArray [][]byte
+		var v []byte
+		currentID := uint64(0)
+		skipped := 0
+		for iterator.ValidForPrefix(opt.Prefix) {
+			item := iterator.Item()
+			k = item.KeyCopy(k)
+			kArray = bytes.Split(k, []byte(db.KV.D))
+			var idd uint64
+			v, err = item.ValueCopy(nil)
+			if err != nil {
+				Log.Error().Interface("error", err).Interface("stack", debug.Stack()).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
+			} else {
+				id, err := db.FT["uint64"].Get(kArray[6])
+				if err != nil {
+					errs = append(errs, err)
+					return nil, errs
+				}
+				idd = id.(uint64)
+				if skipped >= skip && currentID != idd {
+					_, ok := data[idd]
+					if !ok {
+						data[idd] = make(map[string]interface{})
+					}
+					fieldKey := string(kArray[7])
+					fieldKeyType := ao.Fields[fieldKey]
+					db.RLock()
+					ft, ok := db.FT[fieldKeyType]
+					db.RUnlock()
+					if ok {
+						valField, err := ft.Get(v)
+						if err == nil {
+							data[idd][fieldKey] = valField
+						} else {
+							Log.Error().Interface("error", err).Str("key", string(k)).Msg("converting value for key in Badger threw error")
+						}
+					}
+				} else {
+					if currentID != idd {
+						skipped = skipped + 1
+						currentID = idd
+					}
+				}
+			}
+			if len(data) > limit {
+				delete(data, idd)
+				break
+			}
+			iterator.Next()
+		}
+
+		return data, errs
+	case "last":
+		objID, err := db.FT["uint64"].Set(params[4])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		objIDTO, err := db.FT["uint64"].Set(params[5])
+		if err != nil {
+			errs = append(errs, err)
+			return nil, errs
+		}
+		le, ok := params[6].(int)
+		if !ok {
+			errs = append(errs, errors.New("seventh parameter is not int"))
+			return nil, errs
+		}
+		opt := badger.DefaultIteratorOptions
+		var originalPrefix []byte
+		if isObj {
+			originalPrefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(objID) + db.KV.D + field)
+		} else {
+			originalPrefix = []byte(db.Options.DBName + db.KV.D + "a" + db.KV.D + t + db.KV.D + typ + db.KV.D + string(objID) + "-" + string(objIDTO) + db.KV.D + field)
+		}
+
+		opt.Prefix = append(originalPrefix, 0xFF)
+		//log.Print("uyuyuyuyuy", db.Options.DBName+db.KV.D+"a"+db.KV.D+t+db.KV.D+typ+db.KV.D+string(objID)+db.KV.D+field)
+		opt.PrefetchSize = 100
+		opt.PrefetchValues = true
+		opt.Reverse = true
+		iterator := txn.NewIterator(opt)
+		defer iterator.Close()
+		iterator.Seek(opt.Prefix)
+		data := make(map[uint64]map[string]interface{})
+		var k []byte
+		var kArray [][]byte
+		var v []byte
+		run := true
+		kerrs := 0
+		for run {
+			item, err := getItem(iterator)
+			if kerrs > 2 {
+				break
+			}
+			if err == nil {
+				k = item.KeyCopy(k)
+				if !bytes.HasPrefix(k, originalPrefix) {
+					break
+				}
+				kArray = bytes.Split(k, []byte(db.KV.D))
+				v, err = item.ValueCopy(nil)
+				var idd uint64
+				if err != nil {
+					Log.Error().Interface("error", err).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
+				} else {
+					id, err := db.FT["uint64"].Get(kArray[6])
+					if err != nil {
+						errs = append(errs, err)
+						return nil, errs
+					}
+					idd = id.(uint64)
+					_, ok := data[idd]
+					if !ok {
+						data[idd] = make(map[string]interface{})
+					}
+					fieldKey := string(kArray[7])
+					fieldKeyType := ao.Fields[fieldKey]
+					db.RLock()
+					ft, ok := db.FT[fieldKeyType]
+					db.RUnlock()
+					if ok {
+						valField, err := ft.Get(v)
+						if err == nil {
+							data[idd][fieldKey] = valField
+						} else {
+							Log.Error().Interface("error", err).Str("key", string(k)).Msg("converting value for key in Badger threw error")
+						}
+					}
+				}
+				if len(data) > le {
+					delete(data, idd)
+					break
+				}
+			} else {
+				kerrs++
+			}
+			iterator.Next()
+		}
+
+		return data, errs
+	default:
+		errs = append(errs, errors.New("Invalid instruction"))
+		return nil, errs
+	}
+}
+
 func (f *FieldTypeArray) Compare(txn *badger.Txn, db *DB, isObj bool, typ string, id []byte, idTo []byte, field string, action string, param interface{}) (v bool, errs []error) {
 	defer func() {
 		r := recover()

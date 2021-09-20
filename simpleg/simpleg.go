@@ -80,6 +80,8 @@ type AdvancedFieldType interface {
 	// internally by simpleg.
 	//check file FieldTypeArray.go for implementation
 	Get(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error)
+
+	GetMap(txn *badger.Txn, db *DB, params ...interface{}) (interface{}, []error)
 	//Compare is responsible for comparison of fields. This is called internally by simpleg if a field of this particular type is used in
 	//a nodequery.
 	//check file FieldTypeArray.go for implementation
