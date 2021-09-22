@@ -983,8 +983,8 @@ func TestAll(t *testing.T) {
 	query.Do("object", users4)
 	query.Do("graph.p.o", "users1", isFriend, users2)
 	query.Do("array.embeded", "users1", true, "User", "activities", 10)
-	query.Do("embeded", "emb", "users1", "User", isFriend, users2)
-	query.Do("embeded", "emb2", "users4", "User", isFriend, users2, isFriend2, users1)
+	query.Do("embeded.wl", "emb", "users1", "User", isFriend, users2)
+	query.Do("embeded.wl", "emb2", "users4", "User", isFriend, users2, isFriend2, users1)
 	query.Do("return.map", "map", "users1", "emb2")
 	retQuery = query.Return("skip")
 	if len(retQuery.Errors) > 0 {
@@ -997,7 +997,7 @@ func TestAll(t *testing.T) {
 		m := retQuery.Data.(map[string]interface{})
 
 		Log.Print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", m["emb2"])
-		Log.Print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$", m["users1"])
+		Log.Print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@", m["users1"])
 	}
 
 	// prefix := []byte(db.Options.DBName + db.KV.D + "User" + db.KV.D + "date")

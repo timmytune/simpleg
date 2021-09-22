@@ -693,6 +693,168 @@ func (g *GetterFactory) getObjectMapArray(o *ObjectList) ([]map[string]interface
 
 	return ret, errs
 }
+
+func (g *GetterFactory) getItemMap(isObject bool, objectName string, fields string, value map[KeyValueKey][]byte) (map[string]interface{}, []error) {
+	var errs []error
+	var err error
+
+	va := make(map[string]interface{})
+
+	g.DB.RLock()
+	defer g.DB.RUnlock()
+	if isObject {
+		ot, ok := g.DB.OT[objectName]
+		if !ok {
+			errs = append(errs, errors.New("can't find object of name "+objectName))
+			return nil, errs
+		}
+
+		if fields == "" {
+			for k, v := range value {
+				if k.Main != "ID" {
+					ft := ot.Fields[k.GetFullString(g.DB.KV.D)].FieldType
+					if ft != "date" {
+						va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT[ft].Get(v)
+					} else {
+						va[k.GetFullString(g.DB.KV.D)] = string(v)
+					}
+
+					if err != nil {
+						errs = append(errs, err)
+					}
+				} else {
+					va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT["uint64"].Get(v)
+					if err != nil {
+						errs = append(errs, err)
+					}
+				}
+			}
+		} else {
+			fields := strings.Split(fields, ".")
+			if fields[0] == "-" {
+				fields = fields[1:]
+				fieldsm := make(map[string]struct{})
+				for _, v := range fields {
+					fieldsm[v] = struct{}{}
+				}
+				for k, v := range value {
+					if _, ok := fieldsm[k.GetFullString(g.DB.KV.D)]; k.Main != "ID" && !ok {
+						ft := ot.Fields[k.GetFullString(g.DB.KV.D)].FieldType
+						if ft != "date" {
+							va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT[ft].Get(v)
+						} else {
+							va[k.GetFullString(g.DB.KV.D)] = string(v)
+						}
+						if err != nil {
+							errs = append(errs, err)
+						}
+					}
+				}
+
+			} else {
+				for _, v := range fields {
+					if rd, ok := value[KeyValueKey{Main: v}]; ok && v != "ID" {
+						ft := ot.Fields[v].FieldType
+						if ft == "" {
+
+						} else if ft != "date" {
+							va[v], err = g.DB.FT[ft].Get(rd)
+						} else {
+							va[v] = string(rd)
+						}
+						if err != nil {
+							errs = append(errs, err)
+						}
+					}
+				}
+			}
+			va["ID"], err = g.DB.FT["uint64"].Get(value[KeyValueKey{Main: "ID"}])
+			if err != nil {
+				errs = append(errs, err)
+			}
+
+		}
+	} else {
+		ot, ok := g.DB.LT[objectName]
+		if !ok {
+			errs = append(errs, errors.New("can't find object of name "+objectName))
+			return nil, errs
+		}
+
+		if fields == "" {
+			for k, v := range value {
+				if k.Main != "FROM" && k.Main != "TO" {
+					ft := ot.Fields[k.GetFullString(g.DB.KV.D)].FieldType
+					if ft != "date" {
+						va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT[ft].Get(v)
+					} else {
+						va[k.GetFullString(g.DB.KV.D)] = string(v)
+					}
+
+					if err != nil {
+						errs = append(errs, err)
+					}
+				} else {
+					va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT["uint64"].Get(v)
+					if err != nil {
+						errs = append(errs, err)
+					}
+				}
+			}
+		} else {
+			fields := strings.Split(fields, ".")
+			if fields[0] == "-" {
+				fields = fields[1:]
+				fieldsm := make(map[string]struct{})
+				for _, v := range fields {
+					fieldsm[v] = struct{}{}
+				}
+				for k, v := range value {
+					if _, ok := fieldsm[k.GetFullString(g.DB.KV.D)]; k.Main != "FROM" && k.Main != "TO" && !ok {
+						ft := ot.Fields[k.GetFullString(g.DB.KV.D)].FieldType
+						if ft != "date" {
+							va[k.GetFullString(g.DB.KV.D)], err = g.DB.FT[ft].Get(v)
+						} else {
+							va[k.GetFullString(g.DB.KV.D)] = string(v)
+						}
+						if err != nil {
+							errs = append(errs, err)
+						}
+					}
+				}
+
+			} else {
+				for _, v := range fields {
+					if rd, ok := value[KeyValueKey{Main: v}]; ok && v != "FROM" && v != "TO" {
+						ft := ot.Fields[v].FieldType
+						if ft == "" {
+
+						} else if ft != "date" {
+							va[v], err = g.DB.FT[ft].Get(rd)
+						} else {
+							va[v] = string(rd)
+						}
+						if err != nil {
+							errs = append(errs, err)
+						}
+					}
+				}
+			}
+			va["FROM"], err = g.DB.FT["uint64"].Get(value[KeyValueKey{Main: "FROM"}])
+			if err != nil {
+				errs = append(errs, err)
+			}
+			va["TO"], err = g.DB.FT["uint64"].Get(value[KeyValueKey{Main: "TO"}])
+			if err != nil {
+				errs = append(errs, err)
+			}
+
+		}
+	}
+
+	return va, errs
+}
+
 func (g *GetterFactory) getLinkArray(o *LinkList) ([]interface{}, []error) {
 	var errs []error
 	if o.order.field != "" && !o.isIds {
@@ -1488,6 +1650,8 @@ func (g *GetterFactory) Run() {
 				GetterGraphStraightObjectStart(g, txn, &data, &job, val.Params, &ret)
 			case "embeded":
 				GetterGraphEmbeded(g, txn, &data, &job, val.Params, &ret)
+			case "embeded.wl":
+				GetterGraphEmbededALF(g, txn, &data, &job, val.Params, &ret)
 			case "array.embeded":
 				GetterGraphArrayEmbeded(g, txn, &data, &job, val.Params, &ret)
 			case "internal.instruction":
@@ -4999,6 +5163,256 @@ func GetterGraphEmbeded(g *GetterFactory, txn *badger.Txn, data *map[string]inte
 				idb2, _ := g.DB.FT["uint64"].Set(idu2)
 				g.DB.RUnlock()
 				subsubdata, errs := getObjectsForSingleObject(g, txn, nodes[1].TypeName, idb2, &nodes[2], &nodes[3])
+				if len(errs) > 0 {
+					ret.Errors = append(ret.Errors, errs...)
+					return
+				}
+				subdata[i2][nodes[2].TypeName] = subsubdata
+			}
+		}
+		retData[i][nodes[0].TypeName] = subdata
+	}
+
+	//log.Print("ooooo", retData)
+
+	(*data)[saveName] = retData
+
+}
+
+func getObjectsForSingleObjectALF(g *GetterFactory, txn *badger.Txn, fromName string, ID []byte, linkq, objectq *NodeQuery) (data []map[string]interface{}, errs []error) {
+
+	linkh := holder{}
+	linkh.query = linkq
+	linkh.query.saveName = "save"
+	linkh.link = &iteratorLoaderGraphLink{node: linkq, g: g, txn: txn}
+
+	objecth := holder{}
+	objecth.query = objectq
+	objecth.object = &iteratorLoaderGraphObject{objectq, g, txn, false}
+
+	defer func() {
+		if linkh.link != nil && linkh.link.iterator != nil {
+			linkh.link.iterator.Close()
+		}
+	}()
+	ret := make(map[string]map[string]interface{})
+	do := true
+	position := 1
+	down := true
+
+	for do {
+
+		if position == 1 {
+
+			if down {
+
+				if linkh.query.Direction != "-" {
+					g.DB.RLock()
+					lt := g.DB.LT[linkh.query.TypeName]
+					toName := objecth.query.TypeName
+					g.DB.RUnlock()
+					if linkh.query.Direction == "->" {
+						if fromName != lt.From {
+							errs = append(errs, errors.New("Link of type "+linkh.query.TypeName+" with direction -> does not support this 'FROM' -'"+fromName+"'-"))
+							return
+						}
+						if toName != lt.To {
+							errs = append(errs, errors.New("Link of type "+linkh.query.TypeName+" with direction -> does not support this 'TO' -'"+toName+"'-"))
+							return
+						}
+					} else if linkh.query.Direction == "<-" {
+						if fromName != lt.To {
+							errs = append(errs, errors.New("Link of type "+linkh.query.TypeName+" with direction <- does not support this 'FROM' -'"+fromName+"'-"))
+							return
+						}
+						if toName != lt.From {
+							errs = append(errs, errors.New("Link of type "+linkh.query.TypeName+" with direction <- does not support this 'TO' -'"+toName+"'-"))
+							return
+						}
+					}
+				}
+
+				if ID == nil {
+					errs = append(errs, errors.New("Invalid previous id provided from nodequery ID: "+string(ID)))
+					return
+				}
+				link, _, ers, loaded := linkh.link.get2(ID)
+				if len(ers) > 0 {
+					errs = append(errs, ers...)
+					return
+				}
+				if loaded {
+					linkh.currentObject = link
+					linkh.sentCurrentToArray = false
+					position = 2
+					down = true
+				} else {
+					// Unable to get even one object so return empty map
+					data = make([]map[string]interface{}, 0)
+					return
+				}
+			} else {
+				link, _, ers, loaded := linkh.link.more2()
+				if len(ers) > 0 {
+					errs = append(errs, ers...)
+					return
+				}
+				if loaded {
+					linkh.currentObject = link
+					linkh.sentCurrentToArray = false
+					position = 2
+					down = true
+				} else {
+					// Unable to get even one object so go to the previous node to change prevCur
+					do = false
+				}
+			}
+		}
+
+		if position == 2 { // if the last query, that is definitely an object query
+			prevCur := linkh.currentObject[KeyValueKey{Main: "TO"}]
+			if prevCur == nil {
+				errs = append(errs, errors.New("Invalid previous id provided from nodequery , ID: "+string(prevCur)))
+				return
+			}
+			obj, _, ers, loaded := objecth.object.get(prevCur)
+			if len(ers) > 0 {
+				errs = append(errs, ers...)
+				return
+			}
+			if loaded {
+				objecth.sentCurrentToArray = false
+				objecth.currentObject = obj
+
+				if !objecth.sentCurrentToArray {
+					if objecth.query.skip > objecth.skiped {
+						objecth.skiped++
+					} else {
+						reo, ers := g.getItemMap(true, objecth.query.TypeName, objecth.query.Fields, obj)
+						if ers != nil {
+							errs = append(errs, ers...)
+							return
+						}
+						rel, ers := g.getItemMap(false, linkh.query.TypeName, linkh.query.Fields, linkh.currentObject)
+						if ers != nil {
+							errs = append(errs, ers...)
+							return
+						}
+						delete(rel, "FROM")
+						delete(rel, "TO")
+						reo["LINK"] = rel
+						ret[string(objecth.currentObject[KeyValueKey{Main: "ID"}])] = reo
+						objecth.sentCurrentToArray = true
+						objecth.count++
+					}
+					if objecth.count >= objecth.query.limit {
+						do = false
+						position = -1
+					}
+				}
+
+			}
+			position = 1
+			down = false
+		}
+
+	}
+
+	if len(ret) > 0 {
+		for _, v := range ret {
+			data = append(data, v)
+		}
+		return
+	}
+	data = make([]map[string]interface{}, 0)
+	return
+}
+
+func GetterGraphEmbededALF(g *GetterFactory, txn *badger.Txn, data *map[string]interface{}, q *Query, qData []interface{}, ret *GetterRet) {
+
+	if len(qData) != 5 && len(qData) != 7 {
+		ret.Errors = append(ret.Errors, errors.New("invalid number of arguments provided in embeded with link expected 5 or 7 "))
+		return
+	}
+	saveName, ok := qData[0].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid first argument provided in embeded with link expected string"))
+		return
+	}
+	objectName, ok := qData[1].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid second argument provided in embeded with link expected string"))
+		return
+	}
+
+	fromName, ok := qData[2].(string)
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("invalid third argument provided in embeded with link expected string"))
+		return
+	}
+	var retData []map[string]interface{}
+
+	objectList, ok := (*data)[objectName]
+
+	if !ok {
+		ret.Errors = append(ret.Errors, errors.New("provided object name is not pointing to any existing data"))
+		return
+	}
+
+	switch x := objectList.(type) {
+	case *ObjectList:
+		var errs []error
+		fromName = x.ObjectName
+		retData, errs = g.getObjectMapArray(x)
+		if len(errs) > 0 {
+			ret.Errors = append(ret.Errors, errs...)
+			return
+		}
+	case []map[string]interface{}:
+		retData = x
+	default:
+		ret.Errors = append(ret.Errors, errors.New("provided object not of type []map[string]interface{} or *ObjectList"))
+		return
+	}
+
+	if len(retData) == 0 {
+		(*data)[saveName] = make([]map[string]interface{}, 0)
+	}
+	var nodes []NodeQuery
+	for _, v := range qData[3:] {
+		n, ok := v.(NodeQuery)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("provided parameter not type of NodeQuery "))
+			return
+		}
+		nodes = append(nodes, n)
+	}
+
+	for i, v := range retData {
+		idu, ok := v["ID"].(uint64)
+		if !ok {
+			ret.Errors = append(ret.Errors, errors.New("invalid ID gotten from data loaded in embeded "))
+			return
+		}
+		g.DB.RLock()
+		idb, _ := g.DB.FT["uint64"].Set(idu)
+		g.DB.RUnlock()
+		subdata, errs := getObjectsForSingleObjectALF(g, txn, fromName, idb, &nodes[0], &nodes[1])
+		if len(errs) > 0 {
+			ret.Errors = append(ret.Errors, errs...)
+			return
+		}
+		if len(nodes) == 4 {
+			for i2, v2 := range subdata {
+				idu2, ok2 := v2["ID"].(uint64)
+				if !ok2 {
+					ret.Errors = append(ret.Errors, errors.New("invalid ID gotten from data loaded in embeded "))
+					return
+				}
+				g.DB.RLock()
+				idb2, _ := g.DB.FT["uint64"].Set(idu2)
+				g.DB.RUnlock()
+				subsubdata, errs := getObjectsForSingleObjectALF(g, txn, nodes[1].TypeName, idb2, &nodes[2], &nodes[3])
 				if len(errs) > 0 {
 					ret.Errors = append(ret.Errors, errs...)
 					return
