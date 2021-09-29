@@ -35,6 +35,10 @@ func (f *FieldTypeBool) New() interface{} {
 	return false
 }
 
+func (f *FieldTypeBool) Zero() interface{} {
+	return false
+}
+
 func (f *FieldTypeBool) Set(v interface{}) ([]byte, error) {
 	b := make([]byte, 4)
 	d, ok := v.(bool)

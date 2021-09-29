@@ -34,6 +34,10 @@ func (f *FieldTypeDate) New() interface{} {
 	return time.Now()
 }
 
+func (f *FieldTypeDate) Zero() interface{} {
+	return time.Time{}
+}
+
 func (f *FieldTypeDate) Set(v interface{}) ([]byte, error) {
 	d, ok := v.(time.Time)
 	if !ok {

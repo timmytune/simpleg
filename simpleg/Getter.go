@@ -353,8 +353,6 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 		kArray = bytes.Split(k, []byte(i.db.KV.D))
 
 		if i.indexed {
-
-			// check if the key is for this field, if not go to the next one and check again, if test faild 2 times return
 			if string(kArray[2]) != i.field || string(kArray[1]) != i.obj {
 				i.iterator.Next()
 				item, err = getItem(i.iterator)
@@ -421,7 +419,6 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			} else {
 				i.iterator.Next()
 			}
-
 		} else {
 
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
@@ -441,8 +438,7 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			if err != nil && err != badger.ErrKeyNotFound {
 				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
-			}
-			if item2 != nil {
+			} else if err == nil && item2 != nil {
 				v, err := item2.ValueCopy(nil)
 				if err != nil {
 					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", buffer.String()).Msg("Getting value for key in Badger threw error")
@@ -475,8 +471,40 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 				} else {
 					i.iterator.Next()
 				}
-			} else {
-				i.iterator.Next()
+			} else if err != nil && err == badger.ErrKeyNotFound {
+				val2 := i.fieldType.Zero()
+				v, err := i.fieldType.Set(val2)
+				if err != nil {
+					Log.Error().Interface("error", err).Str("key", "Invalid key").Msg("getting-zero-value-error-indexed")
+					return nil, false, err
+				}
+				boa := false
+				for _, ins := range i.query {
+					rawQueryData, err := i.fieldType.Set(ins.param)
+					if err != nil {
+						return nil, false, err
+					}
+					boa, err = i.fieldType.Compare(ins.action, v, rawQueryData)
+					if err != nil {
+						return nil, false, err
+					}
+					if !boa {
+						break
+					}
+				}
+				if boa {
+					notValid = false
+					others := ""
+					if len(kArray) > 4 {
+						ks := string(item2.KeyCopy(nil))
+						ksa := strings.Split(ks, i.db.KV.D)
+						others = strings.Join(ksa[4:], i.db.KV.D)
+					}
+					r[KeyValueKey{Main: i.field, Subs: others}] = v
+					r[KeyValueKey{Main: "ID"}] = kArray[3]
+				} else {
+					i.iterator.Next()
+				}
 			}
 
 		}
@@ -1062,24 +1090,58 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 					buffer.WriteString(key)
 					item, err := txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
-					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
-						errs = append(errs, err)
-						return &ret, errs
-					} else if err == nil && item != nil {
-						var val []byte
+
+						val2 := fieldType.Zero()
+						val, err := fieldType.Set(val2)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", "Invalid key").Str("field", va.FieldType).Msg("getting-zero-value-error")
+							errs = append(errs, err)
+							return &ret, errs
+						}
+
 						for _, in2 := range in1 {
 							rawParam, err := fieldType.Set(in2.param)
 							if err != nil {
 								errs = append(errs, err)
 								return &ret, errs
 							}
-							val, err = item.ValueCopy(nil)
+
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								errs = append(errs, err)
 								return &ret, errs
 							}
+							if !ok {
+								failed = true
+							}
+						}
+						if !failed {
+							if !isIds {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
+						errs = append(errs, err)
+						return &ret, errs
+					} else if err == nil && item != nil {
+						var val []byte
+
+						val, err = item.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+							errs = append(errs, err)
+							return &ret, errs
+						}
+
+						for _, in2 := range in1 {
+
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return &ret, errs
+							}
+
 							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
 								errs = append(errs, err)
@@ -1435,6 +1497,36 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 				buffer.WriteString(key)
 				item2, err := txn.Get(buffer.Bytes())
 				if err != nil && err == badger.ErrKeyNotFound {
+					val2 := fieldType.Zero()
+					val, err := fieldType.Set(val2)
+					if err != nil {
+						Log.Error().Interface("error", err).Str("key", "Invalid key").Str("field", va.FieldType).Msg("getting-zero-value-error-link")
+						errs = append(errs, err)
+						return &ret, errs
+					}
+
+					for _, in2 := range in1 {
+						rawParam, err := fieldType.Set(in2.param)
+						if err != nil {
+							errs = append(errs, err)
+							return &ret, errs
+						}
+
+						ok, err := fieldType.Compare(in2.action, val, rawParam)
+						if err != nil {
+							errs = append(errs, err)
+							iterator.Close()
+							return &ret, errs
+						}
+						if !ok {
+							failed = true
+						}
+					}
+					if !failed {
+						if !isIds {
+							d[KeyValueKey{Main: key}] = val
+						}
+					}
 				} else if err != nil && err != badger.ErrKeyNotFound {
 					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 					errs = append(errs, err)
@@ -1442,19 +1534,22 @@ func (g *GetterFactory) LoadLinks(txn *badger.Txn, node NodeQuery, isIds bool) (
 					return &ret, errs
 				} else if err == nil && item2 != nil {
 					var val []byte
+
+					val, err = item2.ValueCopy(nil)
+					if err != nil {
+						Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+						iterator.Close()
+						errs = append(errs, err)
+						return &ret, errs
+					}
+
 					for _, in2 := range in1 {
 						rawParam, err := fieldType.Set(in2.param)
 						if err != nil {
 							errs = append(errs, err)
 							return &ret, errs
 						}
-						val, err = item2.ValueCopy(nil)
-						if err != nil {
-							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
-							iterator.Close()
-							errs = append(errs, err)
-							return &ret, errs
-						}
+
 						ok, err := fieldType.Compare(in2.action, val, rawParam)
 						if err != nil {
 							errs = append(errs, err)
@@ -2276,7 +2371,6 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 			} else {
 				i.iterator.Next()
 			}
-
 		} else if !i.indexed && i.field == "" {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
 				return r, false, nil
@@ -2301,8 +2395,41 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 			if err != nil && err != badger.ErrKeyNotFound {
 				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
-			} else if item2 == nil {
-			} else {
+			} else if err == badger.ErrKeyNotFound {
+				val2 := i.fieldType.Zero()
+				v, err := i.fieldType.Set(val2)
+				if err != nil {
+					Log.Error().Interface("error", err).Str("key", "Invalid key").Msg("getting-zero-value-error-partern")
+					return nil, false, err
+				}
+				boa := true
+				for _, ins := range i.query {
+					rawQueryData, err := i.fieldType.Set(ins.param)
+					if err != nil {
+						return nil, false, err
+					}
+					oa, err := i.fieldType.Compare(ins.action, v, rawQueryData)
+					if err != nil {
+						return nil, false, err
+					}
+					if !oa {
+						boa = false
+					}
+					if !boa {
+						break
+					}
+				}
+				if boa {
+					notValid = false
+					others := ""
+					ks := string(item2.KeyCopy(nil))
+					ksa := strings.Split(ks, i.g.DB.KV.D)
+					others = strings.Join(ksa[4:], i.g.DB.KV.D)
+					r[KeyValueKey{Main: i.field, Subs: others}] = v
+					r[KeyValueKey{Main: "ID"}] = kArray[3]
+
+				}
+			} else if item2 != nil && err == nil {
 				v, err = item2.ValueCopy(v)
 				if err != nil {
 					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", buffer.String()).Msg("Getting value for key in Badger threw error")
@@ -2337,7 +2464,6 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 
 				}
 			}
-
 		}
 		i.iterator.Next()
 	}
@@ -2358,67 +2484,65 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 	ins, ok := i.node.Instructions["ID"]
 	if ok {
 		for _, query := range ins {
-			if query.action == "==" {
-				if i.gottenID {
-					c = false
-					return
-				}
-
-				// just return an object list with the id requested
-				i.g.DB.RLock()
-				id, err := i.g.DB.FT["uint64"].Set(query.param)
-				i.g.DB.RUnlock()
-				if err != nil {
-					e = append(e, err)
-					return
-				}
-
-				var buffer bytes.Buffer
-				buffer.WriteString(i.g.DB.Options.DBName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString(i.node.TypeName)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.WriteString("ID")
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.Write(id)
-				buffer.WriteString(i.g.DB.KV.D)
-				buffer.Write(id)
-				_, err = i.txn.Get(buffer.Bytes())
-				if err != nil && err != badger.ErrKeyNotFound {
-					e = append(e, err)
-					return
-				}
-
-				if err != nil && err == badger.ErrKeyNotFound {
-					c = false
-					return
-				}
-
-				i.gottenID = true
-				c = true
-
-				if i.node.saveName == "" {
-					b = id
-				} else {
-					i.g.DB.RLock()
-					rawID, er := i.g.DB.FT["uint64"].Set(query.param)
-					i.g.DB.RUnlock()
-					if er != nil {
-						e = append(e, er)
-					} else {
-						obj, err := i.g.getKeysWithValue(i.txn, i.g.DB.Options.DBName, i.node.TypeName, string(rawID))
-						if len(err) > 0 {
-							e = append(e, err...)
-						}
-						if obj != nil {
-							obj[KeyValueKey{Main: "ID"}] = rawID
-							a = obj
-							c = true
-						}
-					}
-				}
+			if i.gottenID {
+				c = false
 				return
 			}
+
+			// just return an object list with the id requested
+			i.g.DB.RLock()
+			id, err := i.g.DB.FT["uint64"].Set(query.param)
+			i.g.DB.RUnlock()
+			if err != nil {
+				e = append(e, err)
+				return
+			}
+
+			var buffer bytes.Buffer
+			buffer.WriteString(i.g.DB.Options.DBName)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.WriteString(i.node.TypeName)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.WriteString("ID")
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.Write(id)
+			buffer.WriteString(i.g.DB.KV.D)
+			buffer.Write(id)
+			_, err = i.txn.Get(buffer.Bytes())
+			if err != nil && err != badger.ErrKeyNotFound {
+				e = append(e, err)
+				return
+			}
+
+			if err != nil && err == badger.ErrKeyNotFound {
+				c = false
+				return
+			}
+
+			i.gottenID = true
+			c = true
+
+			if i.node.saveName == "" {
+				b = id
+			} else {
+				i.g.DB.RLock()
+				rawID, er := i.g.DB.FT["uint64"].Set(query.param)
+				i.g.DB.RUnlock()
+				if er != nil {
+					e = append(e, er)
+				} else {
+					obj, err := i.g.getKeysWithValue(i.txn, i.g.DB.Options.DBName, i.node.TypeName, string(rawID))
+					if len(err) > 0 {
+						e = append(e, err...)
+					}
+					if obj != nil {
+						obj[KeyValueKey{Main: "ID"}] = rawID
+						a = obj
+						c = true
+					}
+				}
+			}
+			return
 
 		}
 	}
@@ -2466,25 +2590,53 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 					buffer.WriteString(key)
 					item, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
-						failed = true
-					} else if err != nil && err != badger.ErrKeyNotFound {
-						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
-						e = append(e, err)
-						return
-					} else if err == nil && item != nil {
-						var val []byte
+						val2 := fieldType.Zero()
+						val, err := fieldType.Set(val2)
+						if err != nil {
+							Log.Error().Err(err).Msg("getting-zero-value-error")
+							e = append(e, err)
+							return
+						}
 						for _, in2 := range in1 {
 							rawParam, err := fieldType.Set(in2.param)
 							if err != nil {
 								e = append(e, err)
 								return
 							}
-							val, err = item.ValueCopy(nil)
+
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 								e = append(e, err)
 								return
 							}
+							if !ok {
+								failed = true
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
+					} else if err != nil && err != badger.ErrKeyNotFound {
+						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
+						e = append(e, err)
+						return
+					} else if err == nil && item != nil {
+						var val []byte
+						val, err = item.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+							e = append(e, err)
+							return
+						}
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								e = append(e, err)
+								return
+							}
+
 							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
 								e = append(e, err)
@@ -2649,7 +2801,37 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
-						failed = true
+						val2 := fieldType.Zero()
+						val, err := fieldType.Set(val2)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", "Invalid key").Str("field", va.FieldType).Msg("getting-zero-value-error")
+							i.iterator.Close()
+							c = append(errs, err)
+							return
+						}
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								c = append(errs, err)
+								return
+							}
+
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								c = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						c = append(errs, err)
@@ -2657,19 +2839,20 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 						return
 					} else if err == nil && item2 != nil {
 						var val []byte
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							c = append(errs, err)
+							return
+						}
 						for _, in2 := range in1 {
 							rawParam, err := fieldType.Set(in2.param)
 							if err != nil {
 								c = append(errs, err)
 								return
 							}
-							val, err = item2.ValueCopy(nil)
-							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
-								i.iterator.Close()
-								c = append(errs, err)
-								return
-							}
+
 							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
 								c = append(errs, err)
@@ -2838,7 +3021,37 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
-						failed = true
+						val2 := fieldType.Zero()
+						val, err := fieldType.Set(val2)
+						if err != nil {
+							Log.Error().Err(err).Msg("error-zero-value-convert")
+							i.iterator.Close()
+							c = append(errs, err)
+							return
+						}
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								c = append(errs, err)
+								return
+							}
+
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								c = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						c = append(errs, err)
@@ -2846,19 +3059,20 @@ func (i *iteratorLoaderGraphLink) get2(from []byte) (a map[KeyValueKey][]byte, b
 						return
 					} else if err == nil && item2 != nil {
 						var val []byte
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							c = append(errs, err)
+							return
+						}
 						for _, in2 := range in1 {
 							rawParam, err := fieldType.Set(in2.param)
 							if err != nil {
 								c = append(errs, err)
 								return
 							}
-							val, err = item2.ValueCopy(nil)
-							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
-								i.iterator.Close()
-								c = append(errs, err)
-								return
-							}
+
 							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
 								c = append(errs, err)
@@ -3001,7 +3215,37 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
-						failed = true
+						val2 := fieldType.Zero()
+						val, err := fieldType.Set(val2)
+						if err != nil {
+							Log.Error().Err(err).Msg("error-zero-value-convert-2")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return
+							}
+
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
@@ -3009,19 +3253,20 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 						return
 					} else if err == nil && item2 != nil {
 						var val []byte
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
 						for _, in2 := range in1 {
 							rawParam, err := fieldType.Set(in2.param)
 							if err != nil {
 								errs = append(errs, err)
 								return
 							}
-							val, err = item2.ValueCopy(nil)
-							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
-								i.iterator.Close()
-								errs = append(errs, err)
-								return
-							}
+
 							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
 								errs = append(errs, err)
@@ -3170,7 +3415,37 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 					buffer.WriteString(key)
 					item2, err := i.txn.Get(buffer.Bytes())
 					if err != nil && err == badger.ErrKeyNotFound {
-						failed = true
+						val2 := fieldType.Zero()
+						val, err := fieldType.Set(val2)
+						if err != nil {
+							Log.Error().Err(err).Msg("error-zero-value-convert-3")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
+						for _, in2 := range in1 {
+							rawParam, err := fieldType.Set(in2.param)
+							if err != nil {
+								errs = append(errs, err)
+								return
+							}
+
+							ok, err := fieldType.Compare(in2.action, val, rawParam)
+							if err != nil {
+								errs = append(errs, err)
+								i.iterator.Close()
+								return
+							}
+							if !ok {
+								failed = true
+								break
+							}
+						}
+						if !failed {
+							if i.node.saveName != "" {
+								d[KeyValueKey{Main: key}] = val
+							}
+						}
 					} else if err != nil && err != badger.ErrKeyNotFound {
 						Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
 						errs = append(errs, err)
@@ -3178,19 +3453,20 @@ func (i *iteratorLoaderGraphLink) more2() (a map[KeyValueKey][]byte, b LinkListL
 						return
 					} else if err == nil && item2 != nil {
 						var val []byte
+						val, err = item2.ValueCopy(nil)
+						if err != nil {
+							Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+							i.iterator.Close()
+							errs = append(errs, err)
+							return
+						}
 						for _, in2 := range in1 {
 							rawParam, err := fieldType.Set(in2.param)
 							if err != nil {
 								errs = append(errs, err)
 								return
 							}
-							val, err = item2.ValueCopy(nil)
-							if err != nil {
-								Log.Error().Interface("error", err).Str("key", string(item.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
-								i.iterator.Close()
-								errs = append(errs, err)
-								return
-							}
+
 							ok, err := fieldType.Compare(in2.action, val, rawParam)
 							if err != nil {
 								errs = append(errs, err)
@@ -3366,25 +3642,54 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 			buffer.WriteString(key)
 			item2, err := i.txn.Get(buffer.Bytes())
 			if err != nil && err == badger.ErrKeyNotFound {
-				failed = true
-			} else if err != nil && err != badger.ErrKeyNotFound {
-				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
-				errs = append(errs, err)
-				return
-			} else if err == nil && item2 != nil {
-				var val []byte
+				val2 := fieldType.Zero()
+				val, err := fieldType.Set(val2)
+				if err != nil {
+					Log.Error().Err(err).Msg("error-zero-value-convert-4")
+					errs = append(errs, err)
+					return
+				}
 				for _, in2 := range in1 {
 					rawParam, err := fieldType.Set(in2.param)
 					if err != nil {
 						errs = append(errs, err)
 						return
 					}
-					val, err = item2.ValueCopy(nil)
+
+					ok, err := fieldType.Compare(in2.action, val, rawParam)
 					if err != nil {
-						Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
 						errs = append(errs, err)
 						return
 					}
+					if !ok {
+						failed = true
+						break
+					}
+				}
+				if !failed {
+					if i.node.saveName != "" {
+						a[KeyValueKey{Main: key}] = val
+					}
+				}
+			} else if err != nil && err != badger.ErrKeyNotFound {
+				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Msg("Getting value for key in Badger threw error again")
+				errs = append(errs, err)
+				return
+			} else if err == nil && item2 != nil {
+				var val []byte
+				val, err = item2.ValueCopy(nil)
+				if err != nil {
+					Log.Error().Interface("error", err).Str("key", string(item2.KeyCopy(nil))).Interface("stack", string(debug.Stack())).Msg("Getting value for key after getting item in Badger threw error")
+					errs = append(errs, err)
+					return
+				}
+				for _, in2 := range in1 {
+					rawParam, err := fieldType.Set(in2.param)
+					if err != nil {
+						errs = append(errs, err)
+						return
+					}
+
 					ok, err := fieldType.Compare(in2.action, val, rawParam)
 					if err != nil {
 						errs = append(errs, err)

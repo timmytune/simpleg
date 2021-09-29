@@ -31,8 +31,12 @@ func (f *FieldTypeInt64) GetOption() map[string]string {
 }
 
 func (f *FieldTypeInt64) New() interface{} {
-	var r int64 = 0
+	var r int64 = int64(0)
 	return r
+}
+
+func (f *FieldTypeInt64) Zero() interface{} {
+	return int64(0)
 }
 
 func (f *FieldTypeInt64) Set(v interface{}) ([]byte, error) {

@@ -35,6 +35,10 @@ func (f *FieldTypeString) New() interface{} {
 	return ""
 }
 
+func (f *FieldTypeString) Zero() interface{} {
+	return ""
+}
+
 func (f *FieldTypeString) Set(v interface{}) ([]byte, error) {
 	d, ok := v.(string)
 	if !ok {

@@ -32,7 +32,12 @@ func (f *FieldTypeFloat64) GetOption() map[string]string {
 }
 
 func (f *FieldTypeFloat64) New() interface{} {
-	var r float64 = 0
+	var r float64 = float64(0)
+	return r
+}
+
+func (f *FieldTypeFloat64) Zero() interface{} {
+	var r float64 = float64(0)
 	return r
 }
 

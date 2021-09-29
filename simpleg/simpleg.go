@@ -48,6 +48,8 @@ type FieldType interface {
 	//FiledType, If there is an error an error is returned instead
 	//check file FieldTypeBool.go for implementation
 	Get([]byte) (interface{}, error)
+
+	Zero() interface{}
 	//Compare is used for field comparison in simpleg. It accepts a string and two []byte. The string represents the comparison instruction to //be executed, the first []byte representing the raw value from database and the second representing raw value of a parammeter provided in
 	//query. it returns a boolean valued based on the comparison result and an error if there is any
 	//check file FieldTypeBool.go for implementation
