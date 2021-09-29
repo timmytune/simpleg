@@ -425,7 +425,6 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 				return r, false, nil
 			}
 
-			//var v []byte
 			var buffer bytes.Buffer
 			buffer.WriteString(i.db.Options.DBName)
 			buffer.WriteString(i.db.KV.D)
@@ -434,7 +433,8 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			buffer.Write(kArray[3])
 			buffer.WriteString(i.db.KV.D)
 			buffer.WriteString(i.field)
-			item2, err := i.txn.Get(buffer.Bytes())
+			buf := buffer.Bytes()
+			item2, err := i.txn.Get(buf)
 			if err != nil && err != badger.ErrKeyNotFound {
 				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
@@ -496,7 +496,7 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 					notValid = false
 					others := ""
 					if len(kArray) > 4 {
-						ks := string(item2.KeyCopy(nil))
+						ks := string(buf)
 						ksa := strings.Split(ks, i.db.KV.D)
 						others = strings.Join(ksa[4:], i.db.KV.D)
 					}
@@ -2391,7 +2391,8 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 			buffer.Write(kArray[3])
 			buffer.WriteString(i.g.DB.KV.D)
 			buffer.WriteString(i.field)
-			item2, err := i.txn.Get(buffer.Bytes())
+			buf := buffer.Bytes()
+			item2, err := i.txn.Get(buf)
 			if err != nil && err != badger.ErrKeyNotFound {
 				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
 				return nil, false, err
@@ -2422,7 +2423,7 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				if boa {
 					notValid = false
 					others := ""
-					ks := string(item2.KeyCopy(nil))
+					ks := string(buf)
 					ksa := strings.Split(ks, i.g.DB.KV.D)
 					others = strings.Join(ksa[4:], i.g.DB.KV.D)
 					r[KeyValueKey{Main: i.field, Subs: others}] = v
