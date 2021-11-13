@@ -16,11 +16,14 @@
 package simpleg
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"sync"
 	"testing"
 	"time"
+
+	badger "github.com/dgraph-io/badger/v3"
 )
 
 var s FieldTypeBool
@@ -1000,33 +1003,67 @@ func TestAll(t *testing.T) {
 		Log.Print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@", m["users1"])
 	}
 
-	// prefix := []byte(db.Options.DBName + db.KV.D + "User" + db.KV.D + "date")
-	// opt := badger.DefaultIteratorOptions
-	// opt.Prefix = prefix
-	// opt.PrefetchSize = 20
-	// opt.PrefetchValues = false
-	// txn := db.KV.DB.NewTransaction(false)
-	// defer txn.Discard()
-	// iterator := txn.NewIterator(opt)
-	// //defer iterator.Close()
-	// brk := false
+	db.KV.Writer2.Write([]byte("."), db.Options.DBName, "_", "1", "User", "1")
+	db.KV.Writer2.Write([]byte("."), db.Options.DBName, "_", "1", "User", "2")
+	db.KV.Writer2.Write([]byte("."), db.Options.DBName, "_", "1", "User", "3")
+	db.KV.Writer2.Write([]byte("."), db.Options.DBName, "_", "1", "User", "4")
+	db.KV.Writer2.Write([]byte("."), db.Options.DBName, "_", "1", "User", "5")
 
-	// iterator.Seek(prefix)
-	// for !brk {
-	// 	if !iterator.ValidForPrefix(prefix) {
-	// 		iterator.Close()
-	// 		break
-	// 	}
-	// 	item := iterator.Item()
-	// 	var key []byte
-	// 	key = item.KeyCopy(key)
-	// 	kArray := bytes.Split(key, []byte(db.KV.D))
-	// 	//f, _ := binary.Uvarint(kArray[3])
-	// 	//t, _ := binary.Uvarint(kArray[4])
-	// 	//log.Printf("%s %s %s %s", string(kArray[1]), string(kArray[2]), strconv.Itoa(int(f)), strconv.Itoa(int(t)))
-	// 	log.Print(string(key), string(kArray[4]))
-	// 	iterator.Next()
-	// }
+	time.Sleep(2 * time.Second)
+
+	q = db.Query()
+	n = NodeQuery{}
+	n.Name("da").Object("User")
+	n.USERID = uint64(1)
+	q.Do("object", n)
+	retGet = q.Return("array", "da")
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
+	} else {
+		log.Print("---- DDDDDD.1111 ---- ", len(retGet.Data.([]interface{})))
+		Log.Print("---- DDDDDD.1111 ---- ", retGet.Data)
+	}
+
+	q = db.Query()
+	n = NodeQuery{}
+	n.Name("da").Object("User")
+	n.USERID = uint64(2)
+	q.Do("object", n)
+	retGet = q.Return("array", "da")
+	if len(retGet.Errors) > 0 {
+		t.Error("simpleg.Query Failed Test get users:", retGet.Errors)
+	} else {
+		log.Print("---- DDDDDD.2222 ---- ", len(retGet.Data.([]interface{})))
+		Log.Print("---- DDDDDD.2222 ---- ", retGet.Data)
+	}
+
+	prefix := []byte(db.Options.DBName + db.KV.D + "_")
+	opt := badger.DefaultIteratorOptions
+	opt.Prefix = prefix
+	opt.PrefetchSize = 20
+	opt.PrefetchValues = false
+	txn := db.KV.DB.NewTransaction(false)
+	defer txn.Discard()
+	iterator := txn.NewIterator(opt)
+	//defer iterator.Close()
+	brk := false
+
+	iterator.Seek(prefix)
+	for !brk {
+		if !iterator.ValidForPrefix(prefix) {
+			iterator.Close()
+			break
+		}
+		item := iterator.Item()
+		var key []byte
+		key = item.KeyCopy(key)
+		kArray := bytes.Split(key, []byte(db.KV.D))
+		//f, _ := binary.Uvarint(kArray[3])
+		//t, _ := binary.Uvarint(kArray[4])
+		//log.Printf("%s %s %s %s", string(kArray[1]), string(kArray[2]), strconv.Itoa(int(f)), strconv.Itoa(int(t)))
+		Log.Print(string(key), " -- ", string(kArray[4]))
+		iterator.Next()
+	}
 
 	q = db.Query()
 	n = NodeQuery{}
@@ -1064,5 +1101,31 @@ func TestAll(t *testing.T) {
 	retGet = q.Return("skip")
 	if len(retGet.Errors) > 0 {
 		t.Error("simpleg.Query Failed Test Update index:", retGet.Errors)
+	}
+
+	startUser = NodeQuery{}
+	startUser.Object("User").Name("first") //.Q("activities", "count-g", 2)
+	startUser.USERID = uint64(1)
+
+	friends = NodeQuery{}
+	friends.Link("Friend", "-").Name("friend").Limit(100) //.Skip(10)
+
+	mutual = NodeQuery{}
+	mutual.Object("User").Name("mutual")
+	mutual.USERID = uint64(1)
+
+	query = db.Query()
+	query.Do("graph.s", startUser, friends, mutual)
+
+	retQuery = query.Return("map", "first", "friend", "mutual")
+	if len(retQuery.Errors) > 0 {
+		Log.Printf("---- Test Get Link had the following errors %s", retQuery.Errors)
+		t.Error("simpleg.Get Failed Test get Friend:", retQuery)
+	} else {
+		//log.Print("---- 8888.1 ---- ", retQuery.Data)
+		log.Print("---- EEEE.1 ---- ", len(retQuery.Data.(map[string]interface{})["first"].([]interface{})))
+		Log.Print("---- EEEE.1 ---- ", retQuery.Data)
+		log.Print("---- EEEE.2 ---- ", len(retQuery.Data.(map[string]interface{})["friend"].([]interface{})))
+		log.Print("---- EEEE.3 ---- ", len(retQuery.Data.(map[string]interface{})["mutual"].([]interface{})))
 	}
 }

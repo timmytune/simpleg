@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ type NodeQuery struct {
 	saveName     string
 	index        string
 	Fields       string
+	USERID       uint64
 }
 
 func (g *NodeQuery) Object(typ string) *NodeQuery {
@@ -218,6 +220,7 @@ func (k *KeyValueKey) GetFullString(d string) string {
 
 type iteratorLoader struct {
 	txn       *badger.Txn
+	USERID    uint64
 	notFirst  bool
 	prefix    string
 	prefix2   string
@@ -243,12 +246,12 @@ type iteratorLoader struct {
 	}
 }
 
-func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQueryInstruction, txn *badger.Txn) []error {
+func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQueryInstruction, txn *badger.Txn, USERID uint64) []error {
 	var errs []error
 	db.RLock()
 	if field == "" {
 		field = "ID"
-		i.indexed = true
+		i.indexed = false
 		i.fieldType = db.FT["uint64"]
 	} else {
 		vaa, ok := db.OT[obj].Fields[field]
@@ -265,9 +268,10 @@ func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQuer
 	db.RUnlock()
 	i.db = db
 	index := ""
+	i.USERID = USERID
 	//i.iterator = txn.NewIterator()
 
-	if i.indexed && len(inst) > 0 {
+	if i.indexed && len(inst) > 0 && USERID == uint64(0) {
 		val, ins, err := i.fieldType.CompareIndexed(inst[0].action, inst[0].param)
 		if err != nil {
 			errs = append(errs, err)
@@ -305,13 +309,22 @@ func (i *iteratorLoader) setup(db *DB, obj string, field string, inst []NodeQuer
 		opt.Reverse = i.reverse
 		opt.PrefetchValues = false
 		i.iterator = txn.NewIterator(opt)
-	} else {
+	} else if !i.indexed && USERID == uint64(0) {
 		i.prefix = db.Options.DBName + db.KV.D + obj + db.KV.D + "ID"
 		opt := badger.DefaultIteratorOptions
 		opt.PrefetchValues = false
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 20
 		opt.Reverse = i.reverse
+		i.iterator = txn.NewIterator(opt)
+		i.query = inst
+	} else if USERID != uint64(0) {
+		i.prefix = db.Options.DBName + db.KV.D + "_" + db.KV.D + strconv.FormatUint(USERID, 36) + db.KV.D + obj
+		opt := badger.DefaultIteratorOptions
+		opt.PrefetchValues = false
+		opt.Prefix = []byte(i.prefix)
+		opt.PrefetchSize = 20
+		opt.Reverse = false
 		i.iterator = txn.NewIterator(opt)
 		i.query = inst
 	}
@@ -430,10 +443,23 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 			buffer.WriteString(i.db.KV.D)
 			buffer.WriteString(i.obj)
 			buffer.WriteString(i.db.KV.D)
-			buffer.Write(kArray[3])
+			kk := kArray[3]
+			if i.USERID != uint64(0) {
+				ks, err := strconv.ParseUint(string(kArray[4]), 36, 64)
+				if err != nil {
+					Log.Error().Err(err).Str("key", string(k)).Msg("parse ownership key error")
+					return nil, false, err
+				}
+				i.db.RLock()
+				kk, _ = i.db.FT["uint64"].Set(ks)
+				i.db.RUnlock()
+				//Log.Debug().Str("key", string(k)).Msg("parse ownership key")
+			}
+			buffer.Write(kk)
 			buffer.WriteString(i.db.KV.D)
 			buffer.WriteString(i.field)
 			buf := buffer.Bytes()
+
 			item2, err := i.txn.Get(buf)
 			if err != nil && err != badger.ErrKeyNotFound {
 				Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", string(k)).Msg("Getting value for key in Badger threw error")
@@ -444,7 +470,7 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 					Log.Error().Interface("error", err).Interface("stack", string(debug.Stack())).Str("key", buffer.String()).Msg("Getting value for key in Badger threw error")
 					return nil, false, err
 				}
-				boa := false
+				boa := true
 				for _, ins := range i.query {
 					rawQueryData, err := i.fieldType.Set(ins.param)
 					if err != nil {
@@ -461,13 +487,13 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 				if boa {
 					notValid = false
 					others := ""
-					if len(kArray) > 4 {
+					if len(kArray) > 4 && i.USERID == uint64(0) {
 						ks := string(item2.KeyCopy(nil))
 						ksa := strings.Split(ks, i.db.KV.D)
 						others = strings.Join(ksa[4:], i.db.KV.D)
 					}
 					r[KeyValueKey{Main: i.field, Subs: others}] = v
-					r[KeyValueKey{Main: "ID"}] = kArray[3]
+					r[KeyValueKey{Main: "ID"}] = kk
 				} else {
 					i.iterator.Next()
 				}
@@ -478,7 +504,7 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 					Log.Error().Interface("error", err).Str("key", "Invalid key").Msg("getting-zero-value-error-indexed")
 					return nil, false, err
 				}
-				boa := false
+				boa := true
 				for _, ins := range i.query {
 					rawQueryData, err := i.fieldType.Set(ins.param)
 					if err != nil {
@@ -495,13 +521,13 @@ func (i *iteratorLoader) next() (map[KeyValueKey][]byte, bool, error) {
 				if boa {
 					notValid = false
 					others := ""
-					if len(kArray) > 4 {
+					if len(kArray) > 4 && i.USERID == uint64(0) {
 						ks := string(buf)
 						ksa := strings.Split(ks, i.db.KV.D)
 						others = strings.Join(ksa[4:], i.db.KV.D)
 					}
 					r[KeyValueKey{Main: i.field, Subs: others}] = v
-					r[KeyValueKey{Main: "ID"}] = kArray[3]
+					r[KeyValueKey{Main: "ID"}] = kk
 				} else {
 					i.iterator.Next()
 				}
@@ -994,6 +1020,7 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 	if node.limit == 0 {
 		node.limit = 100
 	}
+
 	if isIds {
 		ret.IDs = make([][]byte, 0)
 	} else {
@@ -1003,6 +1030,7 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 		errs = append(errs, errors.New("Object Cannot load Link data"))
 		return nil, errs
 	}
+
 	ins, ok := node.Instructions["ID"]
 	if ok {
 		for _, query := range ins {
@@ -1010,10 +1038,29 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 				if isIds {
 					// just return an object list with the id requested
 					ret.IDs = make([][]byte, 0)
+
 					g.DB.RLock()
 					id, err := g.DB.FT["uint64"].Set(query.param)
-					if err != nil {
-						errs = append(errs, err)
+					g.DB.RUnlock()
+					var err2 error
+					if node.USERID != uint64(0) {
+						ii, okk := query.param.(uint64)
+						if okk {
+							_, err3 := txn.Get([]byte(g.DB.Options.DBName + g.DB.KV.D + "_" + g.DB.KV.D + strconv.FormatUint(node.USERID, 36) + g.DB.KV.D + node.TypeName + g.DB.KV.D + strconv.FormatUint(ii, 36)))
+							if err3 != nil {
+								err2 = errors.New("you don't have the permission to get this object")
+							}
+						} else {
+							err2 = errors.New("query parameter not uint64")
+						}
+					}
+					if err != nil || err2 != nil {
+						if err != nil {
+							errs = append(errs, err)
+						}
+						if err2 != nil {
+							errs = append(errs, err2)
+						}
 					} else {
 						prefix := g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "ID" + g.DB.KV.D + string(id)
 						_, err := txn.Get([]byte(prefix))
@@ -1023,14 +1070,33 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 						ret.IDs = append(ret.IDs, id)
 					}
 
-					g.DB.RUnlock()
 					return &ret, errs
 				} else {
+
 					g.DB.RLock()
-					rawID, er := g.DB.FT["uint64"].Set(query.param)
+					rawID, err := g.DB.FT["uint64"].Set(query.param)
 					g.DB.RUnlock()
-					if er != nil {
-						errs = append(errs, er)
+
+					var err2 error
+					if node.USERID != uint64(0) {
+						ii, okk := query.param.(uint64)
+						if okk {
+							_, err3 := txn.Get([]byte(g.DB.Options.DBName + g.DB.KV.D + "_" + g.DB.KV.D + strconv.FormatUint(node.USERID, 36) + g.DB.KV.D + node.TypeName + g.DB.KV.D + strconv.FormatUint(ii, 36)))
+							if err3 != nil {
+								err2 = errors.New("you don't have the permission to get this object")
+							}
+						} else {
+							err2 = errors.New("query parameter not uint64")
+						}
+					}
+
+					if err != nil || err2 != nil {
+						if err != nil {
+							errs = append(errs, err)
+						}
+						if err2 != nil {
+							errs = append(errs, err2)
+						}
 					} else {
 						obj, err := g.getKeysWithValue(txn, g.DB.Options.DBName, node.TypeName, string(rawID))
 						if len(err) > 0 {
@@ -1047,11 +1113,12 @@ func (g *GetterFactory) LoadObjects(txn *badger.Txn, node NodeQuery, isIds bool)
 
 		}
 	}
+
 	iterator := iteratorLoader{}
 	if node.Sort == "ID" && !node.SortType {
 		iterator.reverse = true
 	}
-	errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn)
+	errs = iterator.setup(g.DB, node.TypeName, node.index, node.Instructions[node.index], txn, node.USERID)
 	defer iterator.close()
 	delete(node.Instructions, node.index)
 	for d, b, e := iterator.next(); b; d, b, e = iterator.next() {
@@ -2202,34 +2269,36 @@ type iteratorLoaderGraphStart struct {
 }
 
 func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn *badger.Txn) []error {
-	obj := node.TypeName
-	field := node.index
-
-	if field == "ID" {
-		field = ""
-	}
-
-	inst := node.Instructions[node.index]
 	var errs []error
-	g.DB.RLock()
-	vaa, ok := g.DB.OT[obj].Fields[field]
-	if !ok {
-		errs = append(errs, errors.New("Field -"+field+"- Not found for object -"+obj+"- in the Database"))
-	}
-	i.indexed = vaa.Indexed
-	i.fieldType = g.DB.FT[g.DB.OT[obj].Fields[field].FieldType]
-	g.DB.RUnlock()
-	i.field = field
-	i.txn = txn
-	i.obj = obj
-	i.g = g
+	var inst []NodeQueryInstruction
 
+	if node.index != "" && node.index != "ID" {
+		inst = node.Instructions[node.index]
+		g.DB.RLock()
+		vaa, ok := g.DB.OT[node.TypeName].Fields[node.index]
+		if !ok {
+			errs = append(errs, errors.New("Field -"+node.index+"- Not found for object -"+node.TypeName+"- in the Database"))
+		}
+		i.indexed = vaa.Indexed
+		i.fieldType = g.DB.FT[g.DB.OT[node.TypeName].Fields[node.index].FieldType]
+		g.DB.RUnlock()
+		i.field = node.index
+		delete(node.Instructions, node.index)
+	} else {
+		g.DB.RLock()
+		i.indexed = false
+		i.fieldType = g.DB.FT["uint64"]
+		g.DB.RUnlock()
+		i.field = ""
+	}
+	i.txn = txn
+	i.obj = node.TypeName
+	i.g = g
 	i.node = node
 	index := ""
 
-	delete(node.Instructions, field)
 	//i.iterator = txn.NewIterator()
-	if i.indexed && len(inst) > 0 {
+	if i.indexed && len(inst) > 0 && node.USERID == uint64(0) {
 		val, ins, err := i.fieldType.CompareIndexed(inst[0].action, inst[0].param)
 		if err != nil {
 			errs = append(errs, err)
@@ -2259,16 +2328,16 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 		}
 		i.query = inst[1:]
 
-		i.prefix = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + field + g.DB.KV.D + index
-		i.prefix2 = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + field
+		i.prefix = g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + node.index + g.DB.KV.D + index
+		i.prefix2 = g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + node.index
 		opt := badger.DefaultIteratorOptions
 		opt.Prefix = []byte(i.prefix)
 		opt.PrefetchSize = 100
 		opt.Reverse = i.reverse
 		opt.PrefetchValues = false
 		i.iterator = txn.NewIterator(opt)
-	} else {
-		i.prefix = g.DB.Options.DBName + g.DB.KV.D + obj + g.DB.KV.D + "ID"
+	} else if !i.indexed && node.USERID == uint64(0) {
+		i.prefix = g.DB.Options.DBName + g.DB.KV.D + node.TypeName + g.DB.KV.D + "ID"
 		opt := badger.DefaultIteratorOptions
 		opt.PrefetchValues = false
 		opt.Prefix = []byte(i.prefix)
@@ -2276,6 +2345,14 @@ func (i *iteratorLoaderGraphStart) setup(g *GetterFactory, node *NodeQuery, txn 
 		if node.Sort == "ID" && !node.SortType {
 			opt.Reverse = true
 		}
+		i.iterator = txn.NewIterator(opt)
+		i.query = inst
+	} else if node.USERID != uint64(0) {
+		i.prefix = g.DB.Options.DBName + g.DB.KV.D + "_" + g.DB.KV.D + strconv.FormatUint(node.USERID, 36) + g.DB.KV.D + node.TypeName
+		opt := badger.DefaultIteratorOptions
+		opt.PrefetchValues = false
+		opt.Prefix = []byte(i.prefix)
+		opt.PrefetchSize = 100
 		i.iterator = txn.NewIterator(opt)
 		i.query = inst
 	}
@@ -2376,7 +2453,18 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				return r, false, nil
 			}
 			notValid = false
-			r[KeyValueKey{Main: "ID"}] = kArray[3]
+			if i.node.USERID == uint64(0) {
+				r[KeyValueKey{Main: "ID"}] = kArray[3]
+			} else {
+				ks, err := strconv.ParseUint(string(kArray[4]), 36, 64)
+				if err != nil {
+					Log.Error().Err(err).Str("key", string(k)).Msg("parse ownership key error")
+				}
+				i.g.DB.RLock()
+				kk, _ := i.g.DB.FT["uint64"].Set(ks)
+				i.g.DB.RUnlock()
+				r[KeyValueKey{Main: "ID"}] = kk
+			}
 
 		} else if !i.indexed && i.field != "" {
 			if !i.iterator.ValidForPrefix([]byte(i.prefix)) {
@@ -2388,7 +2476,18 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 			buffer.WriteString(i.g.DB.KV.D)
 			buffer.WriteString(i.obj)
 			buffer.WriteString(i.g.DB.KV.D)
-			buffer.Write(kArray[3])
+			kk := kArray[3]
+			if i.node.USERID != uint64(0) {
+				ks, err := strconv.ParseUint(string(kArray[4]), 36, 64)
+				if err != nil {
+					Log.Error().Err(err).Str("key", string(k)).Msg("parse ownership key error")
+					return nil, false, err
+				}
+				i.g.DB.RLock()
+				kk, _ = i.g.DB.FT["uint64"].Set(ks)
+				i.g.DB.RUnlock()
+			}
+			buffer.Write(kk)
 			buffer.WriteString(i.g.DB.KV.D)
 			buffer.WriteString(i.field)
 			buf := buffer.Bytes()
@@ -2423,11 +2522,13 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				if boa {
 					notValid = false
 					others := ""
-					ks := string(buf)
-					ksa := strings.Split(ks, i.g.DB.KV.D)
-					others = strings.Join(ksa[4:], i.g.DB.KV.D)
+					if i.node.USERID == uint64(0) {
+						ks := string(buf)
+						ksa := strings.Split(ks, i.g.DB.KV.D)
+						others = strings.Join(ksa[4:], i.g.DB.KV.D)
+					}
 					r[KeyValueKey{Main: i.field, Subs: others}] = v
-					r[KeyValueKey{Main: "ID"}] = kArray[3]
+					r[KeyValueKey{Main: "ID"}] = kk
 
 				}
 			} else if item2 != nil && err == nil {
@@ -2457,9 +2558,11 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 				if boa {
 					notValid = false
 					others := ""
-					ks := string(item2.KeyCopy(nil))
-					ksa := strings.Split(ks, i.g.DB.KV.D)
-					others = strings.Join(ksa[4:], i.g.DB.KV.D)
+					if i.node.USERID == uint64(0) {
+						ks := string(buf)
+						ksa := strings.Split(ks, i.g.DB.KV.D)
+						others = strings.Join(ksa[4:], i.g.DB.KV.D)
+					}
 					r[KeyValueKey{Main: i.field, Subs: others}] = v
 					r[KeyValueKey{Main: "ID"}] = kArray[3]
 
@@ -2468,7 +2571,6 @@ func (i *iteratorLoaderGraphStart) next() (map[KeyValueKey][]byte, bool, error) 
 		}
 		i.iterator.Next()
 	}
-
 	return r, true, nil
 }
 
@@ -2497,6 +2599,14 @@ func (i *iteratorLoaderGraphStart) next2() (a map[KeyValueKey][]byte, b []byte, 
 			if err != nil {
 				e = append(e, err)
 				return
+			}
+
+			if i.node.USERID != uint64(0) {
+				_, err := i.txn.Get([]byte(i.g.DB.Options.DBName + i.g.DB.KV.D + "_" + i.g.DB.KV.D + strconv.FormatUint(i.node.USERID, 36) + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + strconv.FormatUint(query.param.(uint64), 36)))
+				if err != nil {
+					e = append(e, err, errors.New("you do not have permission to access this object"))
+					return
+				}
 			}
 
 			var buffer bytes.Buffer
@@ -3573,6 +3683,18 @@ func (i *iteratorLoaderGraphObject) get(to []byte) (a map[KeyValueKey][]byte, b 
 		a = make(map[KeyValueKey][]byte)
 	}
 	errs = make([]error, 0)
+
+	if i.node.USERID != uint64(0) {
+		i.g.DB.RLock()
+		kk, _ := i.g.DB.FT["uint64"].Get(to)
+		i.g.DB.RUnlock()
+		_, err3 := i.txn.Get([]byte(i.g.DB.Options.DBName + i.g.DB.KV.D + "_" + i.g.DB.KV.D + strconv.FormatUint(i.node.USERID, 36) + i.g.DB.KV.D + i.node.TypeName + i.g.DB.KV.D + strconv.FormatUint(kk.(uint64), 36)))
+		if err3 != nil {
+			success = false
+			return
+		}
+	}
+
 	ins, ok := i.node.Instructions["ID"]
 	if ok {
 		for _, query := range ins {
@@ -5320,8 +5442,7 @@ func getObjectsForSingleObject(g *GetterFactory, txn *badger.Txn, fromName strin
 		}
 
 		if position == 2 { // if the last query, that is definitely an object query
-			var prevCur []byte
-			prevCur = linkh.currentIDLink.TO
+			prevCur := linkh.currentIDLink.TO
 			if prevCur == nil {
 				errs = append(errs, errors.New("Invalid previous id provided from nodequery , ID: "+string(prevCur)))
 				return
