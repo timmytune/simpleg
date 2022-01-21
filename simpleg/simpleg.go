@@ -211,6 +211,7 @@ func (db *DB) Init(o Options) error {
 	db.AddFieldType(FieldTypeOptions{Name: "date", AllowIndexing: true}, &FieldTypeDate{})
 	db.AddFieldType(FieldTypeOptions{Name: "float64", AllowIndexing: true}, &FieldTypeFloat64{})
 	db.AddAdvancedFieldType("array", &FieldTypeArray{})
+	db.AddAdvancedFieldType("array2", &FieldTypeArray2{})
 
 	Log.Info().Msg("Database initialized")
 	return nil

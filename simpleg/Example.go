@@ -27,15 +27,16 @@ import (
 
 //User Object
 type User struct {
-	DB         *DB
-	ID         uint64
-	firstName  string
-	lastName   string
-	email      string
-	active     bool
-	age        int64
-	date       time.Time
-	activities FieldTypeArrayValue
+	DB          *DB
+	ID          uint64
+	firstName   string
+	lastName    string
+	email       string
+	active      bool
+	age         int64
+	date        time.Time
+	activities  FieldTypeArrayValue
+	activities2 FieldTypeArrayValue2
 }
 
 type Activities struct {
@@ -58,6 +59,21 @@ func (u *User) addActivity(date time.Time, deviceID string, ind uint64) (index u
 	return
 }
 
+func (u *User) addActivity2(date time.Time, deviceID string) (index string, errs []error) {
+	errs = u.populateActivity2()
+	if len(errs) > 0 {
+		return
+	}
+	a := Activities{}
+	a.date = date
+	a.deviceID = deviceID
+	index, err := u.activities2.Set(a, deviceID)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return
+}
+
 func (u *User) populateActivity() (errs []error) {
 	errs = make([]error, 0)
 	if u.activities.Field != "" {
@@ -73,6 +89,24 @@ func (u *User) populateActivity() (errs []error) {
 	var k interface{}
 	k, errs = af.New(u.DB, 3, "User", "activities", true, u.ID)
 	u.activities = k.(FieldTypeArrayValue)
+	return
+}
+
+func (u *User) populateActivity2() (errs []error) {
+	errs = make([]error, 0)
+	if u.activities2.Field != "" {
+		return
+	}
+	u.DB.RLock()
+	af := u.DB.AFT["array2"]
+	u.DB.RUnlock()
+	if u.ID == uint64(0) {
+		errs = append(errs, errors.New("User object does not have an ID"))
+		return
+	}
+	var k interface{}
+	k, errs = af.New(u.DB, 3, "User", "activities2", true, u.ID)
+	u.activities2 = k.(FieldTypeArrayValue2)
 	return
 }
 
@@ -314,6 +348,7 @@ func GetUserOption() ObjectTypeOptions {
 	uo.Fields["active"] = FieldOptions{Indexed: false, Advanced: false, FieldType: "bool", Validate: nil}
 	uo.Fields["age"] = FieldOptions{Indexed: false, FieldType: "int64", Validate: fv.Int64("age", 10, 28)}
 	uo.Fields["date"] = FieldOptions{Indexed: true, FieldType: "date"}
+
 	arrayOptions := ArrayOptions{}
 	arrayOptions.New = func() interface{} {
 		ret := Activities{}
@@ -360,6 +395,55 @@ func GetUserOption() ObjectTypeOptions {
 	m.FieldTypeOptions = make([]interface{}, 0)
 	m.FieldTypeOptions = append(m.FieldTypeOptions, arrayOptions)
 	uo.Fields["activities"] = m
+
+	arrayOptions2 := ArrayOptions2{}
+	arrayOptions2.New = func() interface{} {
+		ret := Activities{}
+		return ret
+	}
+	arrayOptions2.Set = func(data interface{}, db *DB) (ret map[string][]byte, err error) {
+		ret = make(map[string][]byte)
+		act := data.(Activities)
+		ret["date"], err = db.FT["date"].Set(act.date)
+		if act.deviceID != "" {
+			ret["deviceID"], err = db.FT["string"].Set(act.deviceID)
+		}
+		return
+	}
+	arrayOptions2.Get = func(data map[string][]byte, db *DB) (interface{}, error) {
+
+		ret := Activities{}
+		var err error
+
+		if f, ok := data["deviceID"]; ok {
+			k, er := db.FT["string"].Get(f)
+			err = er
+			if err != nil {
+				return nil, err
+			}
+			ret.deviceID = k.(string)
+		}
+
+		if f, ok := data["date"]; ok {
+			k, er := db.FT["date"].Get(f)
+			err = er
+			if err != nil {
+				return nil, err
+			}
+			ret.date = k.(time.Time)
+		}
+
+		return ret, err
+	}
+
+	arrayOptions2.Fields = make(map[string]string)
+	arrayOptions2.Fields["deviceID"] = "string"
+	arrayOptions2.Fields["date"] = "date"
+	n := FieldOptions{Indexed: false, Advanced: true, FieldType: "array2"}
+	n.FieldTypeOptions = make([]interface{}, 0)
+	n.FieldTypeOptions = append(n.FieldTypeOptions, arrayOptions2)
+	uo.Fields["activities2"] = n
+
 	return uo
 }
 

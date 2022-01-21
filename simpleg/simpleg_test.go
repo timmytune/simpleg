@@ -55,6 +55,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestAll(t *testing.T) {
+
 	var wg sync.WaitGroup
 	start := time.Now()
 	for i := 0; i < 9; i++ {
@@ -154,6 +155,22 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Set Failed Save user Activity: ", xe)
 	}
 
+	u.ID = ret.ID
+	xxx, xe := u.addActivity2(time.Now(), "windows-10")
+	xxx, xe = u.addActivity2(time.Now(), "xp-360")
+	xxx, xe = u.addActivity2(time.Now(), "android")
+	xxx, xe = u.addActivity2(time.Now(), "ios")
+	xxx, xe = u.addActivity2(time.Now(), "symbian")
+	xxx, xe = u.addActivity2(time.Now(), "windows-phone")
+	Log.Print("vvvvv 2 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ :-", xxx, xe)
+	if len(xe) > 0 {
+		t.Error("simpleg.Set Failed Add user Activity: ", xx, xe)
+	}
+	xe = u.activities2.Save()
+	if len(xe) > 0 {
+		t.Error("simpleg.Set Failed Save user Activity2: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~", xe)
+	}
+
 	time.Sleep(2 * time.Second)
 
 	log.Print("vvvvv 3 :-", u.activities)
@@ -176,6 +193,27 @@ func TestAll(t *testing.T) {
 		t.Error("simpleg.Set Failed Get user Activities from DB: ", xe)
 	}
 	log.Print("vvvvv 7 :-", u.activities)
+
+	Log.Print("vvvvv 3 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ :-", u.activities2)
+	_, xxx = u.activities2.Pop()
+	Log.Print("vvvvv 4 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ :-", u.activities2)
+	xe = u.activities2.FromDB("single", xxx)
+	if len(xe) > 0 {
+		t.Error("simpleg.Set Failed Get user Activity from DB: ", xe)
+	}
+	Log.Print("vvvvv 5 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ :-", u.activities2)
+	u.activities2.Clear()
+	xe = u.activities2.FromDB("last", 8)
+	if len(xe) > 0 {
+		t.Error("simpleg.Set Failed Get user Activities from DB: ", xe)
+	}
+	Log.Print("vvvvv 6 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ :-", u.activities2)
+	u.activities2.Clear()
+	xe = u.activities2.FromDB("list", 2, 10)
+	if len(xe) > 0 {
+		t.Error("simpleg.Set Failed Get user Activities from DB: ", xe)
+	}
+	Log.Print("vvvvv 7 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ :-", u.activities)
 
 	re = db.Get("object.new", "User")
 	if len(re.Errors) > 0 {
